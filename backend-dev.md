@@ -240,6 +240,8 @@ LIMIT :limit
 
 ## 11. 测试策略
 
+> 模块化开发强制要求：每个后端模块（如 `auth`、`rating`、`comment`、`ranking`）开发完成后，必须先完成该模块相关测试并通过，再允许推送到 GitHub。
+
 ## 11.1 单元测试
 
 - 游标编码/解码
@@ -258,6 +260,26 @@ LIMIT :limit
   - `GET /rankings`
   - `GET /stalls/{id}/comments`
   - `POST /comments/{id}/like`
+
+## 11.4 模块测试通过后的推送规则
+
+- 后端模块测试通过后，当前批次可直接推送 GitHub
+- 测试失败时禁止推送，需修复并完成回归验证
+- 建议按模块粒度提交，确保问题定位与回滚成本可控
+
+## 11.5 后端与其他任务模型使用规则
+
+- 后端开发及其他工程任务默认使用 GPT-5.3 Codex xhigh（模型：`gpt-5.3-codex`，推理强度：`xhigh`）
+- 若涉及额外组件、插件、扩展或 SDK，需自行搜索官方文档并安装，记录来源、版本、用途
+
+## 11.6 后端 GitHub 提交信息规范
+
+- 仅使用前缀：`feat`、`chore`、`fix`、`refactor`、`docs`
+- 提交信息使用中文，格式：`<type>(可选scope): <中文描述>`
+- 示例：
+  - `feat(comment): 添加评论点赞幂等逻辑`
+  - `fix(rating): 修复重复评分更新异常`
+  - `refactor(repository): 重构游标分页查询`
 
 ---
 
