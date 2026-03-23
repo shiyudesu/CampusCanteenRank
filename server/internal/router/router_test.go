@@ -1185,6 +1185,166 @@ func TestCommentListRepliesEndpoint(t *testing.T) {
 	}
 }
 
+func TestMeEndpoints(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
+		"email":    "me@example.com",
+		"nickname": "MeUser",
+		"password": "Pass@123456",
+	})
+	loginResp := requestJSON(t, engine, http.MethodPost, "/api/v1/auth/login", map[string]interface{}{
+		"email":    "me@example.com",
+		"password": "Pass@123456",
+	})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("me login status = %d, want 200", loginResp.Code)
+	}
+	loginEnvelope := decodeEnvelope(t, loginResp.Body.Bytes())
+	loginData, ok := loginEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("me login data should be object")
+	}
+	accessToken, ok := loginData["accessToken"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("me access token should not be empty")
+	}
+
+	for i := 0; i < 3; i++ {
+		createResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+			"content":       "my comment #" + strconv.Itoa(i),
+			"rootId":        0,
+			"parentId":      0,
+			"replyToUserId": 0,
+		}, accessToken)
+		if createResp.Code != http.StatusOK {
+			t.Fatalf("create my comment[%d] status = %d, want 200", i, createResp.Code)
+		}
+	}
+
+	firstCommentPage := requestWithAuth(t, engine, http.MethodGet, "/api/v1/me/comments?limit=2", accessToken)
+	if firstCommentPage.Code != http.StatusOK {
+		t.Fatalf("my comments first page status = %d, want 200", firstCommentPage.Code)
+	}
+	firstCommentEnvelope := decodeEnvelope(t, firstCommentPage.Body.Bytes())
+	if got := asInt(t, firstCommentEnvelope["code"]); got != 0 {
+		t.Fatalf("my comments first page code = %d, want 0", got)
+	}
+	firstCommentData, ok := firstCommentEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("my comments first page data should be object")
+	}
+	firstCommentItems, ok := firstCommentData["items"].([]interface{})
+	if !ok || len(firstCommentItems) != 2 {
+		t.Fatalf("my comments first page len = %d, want 2", len(firstCommentItems))
+	}
+	if hasMore, ok := firstCommentData["hasMore"].(bool); !ok || !hasMore {
+		t.Fatalf("my comments first page hasMore should be true")
+	}
+	nextCommentCursor, ok := firstCommentData["nextCursor"].(string)
+	if !ok || nextCommentCursor == "" {
+		t.Fatalf("my comments first page nextCursor should be non-empty")
+	}
+
+	secondCommentPage := requestWithAuth(t, engine, http.MethodGet, "/api/v1/me/comments?limit=2&cursor="+url.QueryEscape(nextCommentCursor), accessToken)
+	if secondCommentPage.Code != http.StatusOK {
+		t.Fatalf("my comments second page status = %d, want 200", secondCommentPage.Code)
+	}
+	secondCommentEnvelope := decodeEnvelope(t, secondCommentPage.Body.Bytes())
+	secondCommentData, ok := secondCommentEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("my comments second page data should be object")
+	}
+	secondCommentItems, ok := secondCommentData["items"].([]interface{})
+	if !ok || len(secondCommentItems) == 0 {
+		t.Fatalf("my comments second page should contain items")
+	}
+	if hasMore, ok := secondCommentData["hasMore"].(bool); !ok || hasMore {
+		t.Fatalf("my comments second page hasMore should be false")
+	}
+
+	for _, payload := range []struct {
+		score int
+		stall int
+	}{{score: 5, stall: 101}, {score: 3, stall: 102}, {score: 4, stall: 201}} {
+		rateResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/"+strconv.Itoa(payload.stall)+"/ratings", map[string]interface{}{"score": payload.score}, accessToken)
+		if rateResp.Code != http.StatusOK {
+			t.Fatalf("rate stall %d status = %d, want 200", payload.stall, rateResp.Code)
+		}
+	}
+
+	firstRatingPage := requestWithAuth(t, engine, http.MethodGet, "/api/v1/me/ratings?limit=2", accessToken)
+	if firstRatingPage.Code != http.StatusOK {
+		t.Fatalf("my ratings first page status = %d, want 200", firstRatingPage.Code)
+	}
+	firstRatingEnvelope := decodeEnvelope(t, firstRatingPage.Body.Bytes())
+	if got := asInt(t, firstRatingEnvelope["code"]); got != 0 {
+		t.Fatalf("my ratings first page code = %d, want 0", got)
+	}
+	firstRatingData, ok := firstRatingEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("my ratings first page data should be object")
+	}
+	firstRatingItems, ok := firstRatingData["items"].([]interface{})
+	if !ok || len(firstRatingItems) != 2 {
+		t.Fatalf("my ratings first page len = %d, want 2", len(firstRatingItems))
+	}
+	for _, raw := range firstRatingItems {
+		item, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("my ratings item should be object")
+		}
+		if asString(t, item["stallName"]) == "" {
+			t.Fatalf("my ratings item stallName should not be empty")
+		}
+		if asString(t, item["updatedAt"]) == "" {
+			t.Fatalf("my ratings item updatedAt should not be empty")
+		}
+	}
+	if hasMore, ok := firstRatingData["hasMore"].(bool); !ok || !hasMore {
+		t.Fatalf("my ratings first page hasMore should be true")
+	}
+	nextRatingCursor, ok := firstRatingData["nextCursor"].(string)
+	if !ok || nextRatingCursor == "" {
+		t.Fatalf("my ratings first page nextCursor should be non-empty")
+	}
+
+	secondRatingPage := requestWithAuth(t, engine, http.MethodGet, "/api/v1/me/ratings?limit=2&cursor="+url.QueryEscape(nextRatingCursor), accessToken)
+	if secondRatingPage.Code != http.StatusOK {
+		t.Fatalf("my ratings second page status = %d, want 200", secondRatingPage.Code)
+	}
+	secondRatingEnvelope := decodeEnvelope(t, secondRatingPage.Body.Bytes())
+	secondRatingData, ok := secondRatingEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("my ratings second page data should be object")
+	}
+	secondRatingItems, ok := secondRatingData["items"].([]interface{})
+	if !ok || len(secondRatingItems) != 1 {
+		t.Fatalf("my ratings second page len = %d, want 1", len(secondRatingItems))
+	}
+	if hasMore, ok := secondRatingData["hasMore"].(bool); !ok || hasMore {
+		t.Fatalf("my ratings second page hasMore should be false")
+	}
+
+	guestMyComments := requestNoBody(t, engine, http.MethodGet, "/api/v1/me/comments")
+	if guestMyComments.Code != http.StatusUnauthorized {
+		t.Fatalf("guest my comments status = %d, want 401", guestMyComments.Code)
+	}
+	guestMyCommentsEnvelope := decodeEnvelope(t, guestMyComments.Body.Bytes())
+	if got := asInt(t, guestMyCommentsEnvelope["code"]); got != 40101 {
+		t.Fatalf("guest my comments code = %d, want 40101", got)
+	}
+
+	guestMyRatings := requestNoBody(t, engine, http.MethodGet, "/api/v1/me/ratings")
+	if guestMyRatings.Code != http.StatusUnauthorized {
+		t.Fatalf("guest my ratings status = %d, want 401", guestMyRatings.Code)
+	}
+	guestMyRatingsEnvelope := decodeEnvelope(t, guestMyRatings.Body.Bytes())
+	if got := asInt(t, guestMyRatingsEnvelope["code"]); got != 40101 {
+		t.Fatalf("guest my ratings code = %d, want 40101", got)
+	}
+}
+
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body map[string]interface{}) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)

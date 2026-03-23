@@ -3,6 +3,7 @@ package router
 import (
 	authcontroller "CampusCanteenRank/server/internal/controller/auth"
 	commentcontroller "CampusCanteenRank/server/internal/controller/comment"
+	mecontroller "CampusCanteenRank/server/internal/controller/me"
 	stallcontroller "CampusCanteenRank/server/internal/controller/stall"
 	"CampusCanteenRank/server/internal/middleware"
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
@@ -10,6 +11,7 @@ import (
 	stallrepo "CampusCanteenRank/server/internal/repository/stall"
 	authservice "CampusCanteenRank/server/internal/service/auth"
 	commentservice "CampusCanteenRank/server/internal/service/comment"
+	meservice "CampusCanteenRank/server/internal/service/me"
 	stallservice "CampusCanteenRank/server/internal/service/stall"
 	"github.com/gin-gonic/gin"
 )
@@ -41,6 +43,7 @@ func NewEngineWithRepositories(
 	commentRepository := commentrepo.NewMemoryCommentRepository()
 	stallHandler := stallcontroller.NewStallHandler(stallservice.NewStallService(stallRepository))
 	commentHandler := commentcontroller.NewCommentHandler(commentservice.NewCommentService(commentRepository, stallRepository, userRepo))
+	meHandler := mecontroller.NewMeHandler(meservice.NewMeService(commentRepository, stallRepository, userRepo))
 
 	v1 := r.Group("/api/v1")
 	authGroup := v1.Group("/auth")
@@ -56,6 +59,8 @@ func NewEngineWithRepositories(
 	v1.GET("/comments/:rootCommentId/replies", middleware.OptionalAuth(secret), commentHandler.ListReplies)
 	v1.POST("/comments/:commentId/like", middleware.Auth(secret), commentHandler.LikeComment)
 	v1.DELETE("/comments/:commentId/like", middleware.Auth(secret), commentHandler.UnlikeComment)
+	v1.GET("/me/comments", middleware.Auth(secret), meHandler.ListMyComments)
+	v1.GET("/me/ratings", middleware.Auth(secret), meHandler.ListMyRatings)
 
 	return r
 }

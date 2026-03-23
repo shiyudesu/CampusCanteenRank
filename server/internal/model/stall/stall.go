@@ -19,3 +19,10 @@ type Stall struct {
 	Status      int8
 	CreatedAt   time.Time
 }
+
+type UserRating struct {
+	UserID    int64
+	StallID   int64
+	Score     int
+	UpdatedAt time.Time
+}

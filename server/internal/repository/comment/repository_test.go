@@ -8,6 +8,78 @@ import (
 	model "CampusCanteenRank/server/internal/model/comment"
 )
 
+func TestMemoryCommentRepositoryListByUserPagination(t *testing.T) {
+	repo := NewMemoryCommentRepository()
+	ctx := context.Background()
+
+	created := make([]*model.Comment, 0, 3)
+	for i := 0; i < 3; i++ {
+		item := &model.Comment{
+			StallID:       101,
+			UserID:        1001,
+			RootID:        0,
+			ParentID:      0,
+			ReplyToUserID: 0,
+			Content:       "mine",
+			LikeCount:     0,
+			ReplyCount:    0,
+			Status:        1,
+		}
+		if err := repo.Create(ctx, item); err != nil {
+			t.Fatalf("create my comment failed: %v", err)
+		}
+		created = append(created, item)
+	}
+
+	otherUser := &model.Comment{
+		StallID:       101,
+		UserID:        1002,
+		RootID:        0,
+		ParentID:      0,
+		ReplyToUserID: 0,
+		Content:       "other",
+		LikeCount:     0,
+		ReplyCount:    0,
+		Status:        1,
+	}
+	if err := repo.Create(ctx, otherUser); err != nil {
+		t.Fatalf("create other user comment failed: %v", err)
+	}
+
+	first, hasMore, err := repo.ListByUser(ctx, 1001, 2, nil)
+	if err != nil {
+		t.Fatalf("list by user first page failed: %v", err)
+	}
+	if len(first) != 2 {
+		t.Fatalf("first page len = %d, want 2", len(first))
+	}
+	if !hasMore {
+		t.Fatalf("first page hasMore should be true")
+	}
+	for _, item := range first {
+		if item.UserID != 1001 {
+			t.Fatalf("unexpected user id=%d in first page", item.UserID)
+		}
+	}
+
+	cursor := &CommentCursor{CreatedAt: first[len(first)-1].CreatedAt, ID: first[len(first)-1].ID}
+	second, secondHasMore, err := repo.ListByUser(ctx, 1001, 2, cursor)
+	if err != nil {
+		t.Fatalf("list by user second page failed: %v", err)
+	}
+	if secondHasMore {
+		t.Fatalf("second page hasMore should be false")
+	}
+	if len(second) == 0 {
+		t.Fatalf("second page should contain remaining comments")
+	}
+	for _, item := range second {
+		if item.UserID != 1001 {
+			t.Fatalf("unexpected user id=%d in second page", item.UserID)
+		}
+	}
+}
+
 func TestMemoryCommentRepositoryLikeUnlikeIdempotent(t *testing.T) {
 	repo := NewMemoryCommentRepository()
 	ctx := context.Background()

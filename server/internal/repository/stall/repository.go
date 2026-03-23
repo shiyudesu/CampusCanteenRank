@@ -29,19 +29,25 @@ type StallCursor struct {
 	ID        int64
 }
 
+type UserRatingCursor struct {
+	UpdatedAt time.Time
+	StallID   int64
+}
+
 type StallRepository interface {
 	ListCanteens(ctx context.Context) ([]model.Canteen, error)
 	ListStalls(ctx context.Context, options StallListOptions) ([]model.Stall, bool, error)
 	GetStallByID(ctx context.Context, stallID int64) (*model.Stall, error)
 	GetUserRating(ctx context.Context, userID int64, stallID int64) (*int, error)
 	UpsertUserRating(ctx context.Context, userID int64, stallID int64, score int) (*model.Stall, error)
+	ListUserRatings(ctx context.Context, userID int64, limit int, cursor *UserRatingCursor) ([]model.UserRating, bool, error)
 }
 
 type MemoryStallRepository struct {
 	mu       sync.RWMutex
 	canteens []model.Canteen
 	stalls   []model.Stall
-	ratings  map[int64]map[int64]int
+	ratings  map[int64]map[int64]model.UserRating
 }
 
 func NewMemoryStallRepository() *MemoryStallRepository {
@@ -63,7 +69,7 @@ func NewMemoryStallRepository() *MemoryStallRepository {
 			{ID: 2, Name: "二食堂", Campus: "东校区", Status: 1},
 		},
 		stalls:  stalls,
-		ratings: map[int64]map[int64]int{},
+		ratings: map[int64]map[int64]model.UserRating{},
 	}
 }
 
@@ -149,7 +155,7 @@ func (r *MemoryStallRepository) GetUserRating(_ context.Context, userID int64, s
 	if !ok {
 		return nil, nil
 	}
-	result := rating
+	result := rating.Score
 	return &result, nil
 }
 
@@ -169,17 +175,22 @@ func (r *MemoryStallRepository) UpsertUserRating(_ context.Context, userID int64
 	}
 
 	if _, ok := r.ratings[userID]; !ok {
-		r.ratings[userID] = make(map[int64]int)
+		r.ratings[userID] = make(map[int64]model.UserRating)
 	}
-	previousScore, hadPrevious := r.ratings[userID][stallID]
-	r.ratings[userID][stallID] = score
+	previous, hadPrevious := r.ratings[userID][stallID]
+	r.ratings[userID][stallID] = model.UserRating{
+		UserID:    userID,
+		StallID:   stallID,
+		Score:     score,
+		UpdatedAt: time.Now().UTC(),
+	}
 
 	target := &r.stalls[stallIndex]
 	if hadPrevious {
 		if target.RatingCount <= 0 {
 			return nil, errors.New("invalid aggregate state")
 		}
-		total := target.AvgRating*float64(target.RatingCount) - float64(previousScore) + float64(score)
+		total := target.AvgRating*float64(target.RatingCount) - float64(previous.Score) + float64(score)
 		target.AvgRating = total / float64(target.RatingCount)
 	} else {
 		total := target.AvgRating*float64(target.RatingCount) + float64(score)
@@ -189,4 +200,47 @@ func (r *MemoryStallRepository) UpsertUserRating(_ context.Context, userID int64
 
 	clone := *target
 	return &clone, nil
+}
+
+func (r *MemoryStallRepository) ListUserRatings(_ context.Context, userID int64, limit int, cursor *UserRatingCursor) ([]model.UserRating, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	if limit <= 0 {
+		limit = 20
+	}
+
+	byStall, ok := r.ratings[userID]
+	if !ok {
+		return []model.UserRating{}, false, nil
+	}
+
+	items := make([]model.UserRating, 0, len(byStall))
+	for _, item := range byStall {
+		if cursor != nil {
+			if item.UpdatedAt.After(cursor.UpdatedAt) {
+				continue
+			}
+			if item.UpdatedAt.Equal(cursor.UpdatedAt) && item.StallID >= cursor.StallID {
+				continue
+			}
+		}
+		items = append(items, item)
+	}
+
+	sort.Slice(items, func(i, j int) bool {
+		if items[i].UpdatedAt.Equal(items[j].UpdatedAt) {
+			return items[i].StallID > items[j].StallID
+		}
+		return items[i].UpdatedAt.After(items[j].UpdatedAt)
+	})
+
+	hasMore := len(items) > limit
+	if hasMore {
+		items = items[:limit]
+	}
+
+	out := make([]model.UserRating, len(items))
+	copy(out, items)
+	return out, hasMore, nil
 }
