@@ -4,6 +4,7 @@ import (
 	"CampusCanteenRank/server/internal/auth/controller"
 	"CampusCanteenRank/server/internal/auth/repository"
 	"CampusCanteenRank/server/internal/auth/service"
+	"CampusCanteenRank/server/internal/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -17,7 +18,9 @@ func NewEngineWithRepositories(
 	refreshRepo repository.RefreshTokenRepository,
 ) *gin.Engine {
 	r := gin.New()
-	r.Use(gin.Recovery())
+	r.Use(middleware.TraceID())
+	r.Use(middleware.RequestLogger())
+	r.Use(middleware.Recover())
 
 	if userRepo == nil {
 		userRepo = repository.NewMemoryUserRepository()

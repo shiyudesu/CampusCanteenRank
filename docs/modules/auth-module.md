@@ -398,9 +398,11 @@ type Envelope struct {
 ### `NewEngine(secret)`
 
 1. `gin.New()`
-2. `gin.Recovery()`（基础恢复）
-3. 构造仓储 + service + handler
-4. 挂路由到 `/api/v1/auth/*`
+2. `TraceID` 中间件（透传/生成 `X-Trace-ID`，写入上下文与响应头）
+3. `RequestLogger` 中间件（记录 `trace_id/method/path/status/latency/client_ip`）
+4. `Recover` 中间件（panic 统一转换为标准错误 envelope，并记录 panic + stack）
+5. 构造仓储 + service + handler
+6. 挂路由到 `/api/v1/auth/*`
 
 这样好处：
 
@@ -615,13 +617,17 @@ go run ./cmd/api
    - 初始化失败或缺失时自动回退内存模式。
 9. `api-spec.md` 已补全 `POST /auth/refresh` 请求/响应示例，联调字段歧义已消除。
 10. 路由级测试完成并覆盖核心成功/失败路径。
+11. 中间件治理第一阶段已完成：
+   - 新增 `TraceID` 中间件（透传/生成 `X-Trace-ID`，并写入 Gin Context）。
+   - 新增统一请求日志中间件（输出 trace_id、method、path、status、latency、client_ip）。
+   - 新增统一 Recover 中间件（panic 统一返回 `50000/internal error` 的标准 envelope）。
+12. Router 已接入上述中间件链路，并补充中间件行为测试（TraceID 生成/透传、Recover 统一返回）。
 
 ### 10.2 下一步计划（Next Steps）
 
-1. **完善中间件治理**
-   - 增加 TraceID 中间件。
-   - 增加统一日志中间件（Zap）。
-   - 将 panic/recover 统一转为规范错误返回。
+1. **中间件治理第二阶段（质量深化）**
+   - 将当前请求日志实现升级为 `Zap` 结构化日志（字段对齐 trace_id/request_id/user_id）。
+   - 增加可配置日志级别与敏感字段脱敏策略。
 2. **进入下一个业务模块**（按 P0）
    - 推荐顺序：`stall list/detail` -> `rating` -> `comment` -> `like` -> `ranking`。
 3. **补充仓储层测试**
