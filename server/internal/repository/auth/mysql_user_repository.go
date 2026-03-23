@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	"CampusCanteenRank/server/internal/auth/model"
+	"CampusCanteenRank/server/internal/model/auth"
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )

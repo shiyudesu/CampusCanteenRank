@@ -4,10 +4,10 @@ import (
 	"errors"
 	"net/http"
 
-	"CampusCanteenRank/server/internal/auth/dto"
-	"CampusCanteenRank/server/internal/auth/service"
+	dto "CampusCanteenRank/server/internal/dto/auth"
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
 	"CampusCanteenRank/server/internal/pkg/response"
+	"CampusCanteenRank/server/internal/service/auth"
 	"github.com/gin-gonic/gin"
 )
 

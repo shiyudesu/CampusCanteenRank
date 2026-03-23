@@ -44,10 +44,20 @@ server/
     router/
     middleware/
     controller/
+      auth/
+      stall/
     service/
+      auth/
+      stall/
     repository/
+      auth/
+      stall/
     model/
+      auth/
+      stall/
     dto/
+      auth/
+      stall/
     cache/
     pkg/
       auth/

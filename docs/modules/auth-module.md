@@ -38,30 +38,30 @@
 
 ### 2.2 auth 领域
 
-- `server/internal/auth/dto/auth_dto.go`
+- `server/internal/dto/auth/auth_dto.go`
   - 请求/响应 DTO 定义
   - `binding` 标签用于 Gin 参数校验
 
-- `server/internal/auth/model/user.go`
+- `server/internal/model/auth/user.go`
   - 用户实体最小字段定义（ID、昵称、邮箱、密码哈希、状态、创建时间）
 
-- `server/internal/auth/repository/repository.go`
+- `server/internal/repository/auth/repository.go`
   - 仓储接口定义：`UserRepository`、`RefreshTokenRepository`
   - 内存实现：便于在无数据库阶段先打通业务闭环
 
-- `server/internal/auth/repository/mysql_user_repository.go`
+- `server/internal/repository/auth/mysql_user_repository.go`
   - MySQL 用户仓储实现（基于 GORM）
   - 启动阶段自动迁移 `users` 表结构，映射统一仓储接口
 
-- `server/internal/auth/repository/redis_refresh_token_repository.go`
+- `server/internal/repository/auth/redis_refresh_token_repository.go`
   - Redis refresh token 仓储实现
   - 使用 key TTL + 删除消费（DEL）保证 refresh token 一次性消费
 
-- `server/internal/auth/service/auth_service.go`
+- `server/internal/service/auth/auth_service.go`
   - 核心业务逻辑：注册、登录、刷新 token
   - 密码哈希、JWT 签发、refresh token 轮换
 
-- `server/internal/auth/controller/auth_handler.go`
+- `server/internal/controller/auth/auth_handler.go`
   - HTTP handler：参数绑定、调用 service、错误到 HTTP 映射
 
 ### 2.3 通用包
@@ -175,7 +175,7 @@ type Envelope struct {
 
 ## 3.4 DTO 与参数校验
 
-文件：`server/internal/auth/dto/auth_dto.go`
+文件：`server/internal/dto/auth/auth_dto.go`
 
 ### 请求 DTO
 
@@ -240,7 +240,7 @@ type Envelope struct {
 
 ## 3.6 仓储层（内存实现）
 
-文件：`server/internal/auth/repository/repository.go`
+文件：`server/internal/repository/auth/repository.go`
 
 ### 接口设计
 
@@ -291,7 +291,7 @@ type Envelope struct {
 
 ## 3.7 业务层（核心）
 
-文件：`server/internal/auth/service/auth_service.go`
+文件：`server/internal/service/auth/auth_service.go`
 
 ### 构造函数字段
 
@@ -362,7 +362,7 @@ type Envelope struct {
 
 ## 3.8 Handler 层（HTTP 映射）
 
-文件：`server/internal/auth/controller/auth_handler.go`
+文件：`server/internal/controller/auth/auth_handler.go`
 
 ### 三个入口方法
 

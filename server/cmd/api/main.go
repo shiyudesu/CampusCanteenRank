@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"time"
 
-	"CampusCanteenRank/server/internal/auth/repository"
 	logpkg "CampusCanteenRank/server/internal/pkg/logger"
+	authrepo "CampusCanteenRank/server/internal/repository/auth"
 	"CampusCanteenRank/server/internal/router"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/mysql"
@@ -34,23 +34,23 @@ func main() {
 	}
 }
 
-func buildAuthRepositories() (repository.UserRepository, repository.RefreshTokenRepository, func()) {
+func buildAuthRepositories() (authrepo.UserRepository, authrepo.RefreshTokenRepository, func()) {
 	mysqlDSN := os.Getenv("MYSQL_DSN")
 	redisAddr := os.Getenv("REDIS_ADDR")
 	if mysqlDSN == "" || redisAddr == "" {
 		log.Println("auth repository mode: memory (MYSQL_DSN or REDIS_ADDR missing)")
-		return repository.NewMemoryUserRepository(), repository.NewMemoryRefreshTokenRepository(), func() {}
+		return authrepo.NewMemoryUserRepository(), authrepo.NewMemoryRefreshTokenRepository(), func() {}
 	}
 
 	db, err := gorm.Open(mysql.Open(mysqlDSN), &gorm.Config{})
 	if err != nil {
 		log.Printf("mysql init failed, fallback to memory: %v", err)
-		return repository.NewMemoryUserRepository(), repository.NewMemoryRefreshTokenRepository(), func() {}
+		return authrepo.NewMemoryUserRepository(), authrepo.NewMemoryRefreshTokenRepository(), func() {}
 	}
-	userRepo, err := repository.NewMySQLUserRepository(db)
+	userRepo, err := authrepo.NewMySQLUserRepository(db)
 	if err != nil {
 		log.Printf("mysql user repository init failed, fallback to memory: %v", err)
-		return repository.NewMemoryUserRepository(), repository.NewMemoryRefreshTokenRepository(), func() {}
+		return authrepo.NewMemoryUserRepository(), authrepo.NewMemoryRefreshTokenRepository(), func() {}
 	}
 
 	redisDB := defaultRedisDB
@@ -73,14 +73,14 @@ func buildAuthRepositories() (repository.UserRepository, repository.RefreshToken
 	if pingErr := redisClient.Ping(ctx).Err(); pingErr != nil {
 		log.Printf("redis init failed, fallback to memory: %v", pingErr)
 		_ = redisClient.Close()
-		return repository.NewMemoryUserRepository(), repository.NewMemoryRefreshTokenRepository(), func() {}
+		return authrepo.NewMemoryUserRepository(), authrepo.NewMemoryRefreshTokenRepository(), func() {}
 	}
 
-	refreshRepo, err := repository.NewRedisRefreshTokenRepository(redisClient, os.Getenv("REDIS_REFRESH_PREFIX"))
+	refreshRepo, err := authrepo.NewRedisRefreshTokenRepository(redisClient, os.Getenv("REDIS_REFRESH_PREFIX"))
 	if err != nil {
 		log.Printf("redis refresh repository init failed, fallback to memory: %v", err)
 		_ = redisClient.Close()
-		return repository.NewMemoryUserRepository(), repository.NewMemoryRefreshTokenRepository(), func() {}
+		return authrepo.NewMemoryUserRepository(), authrepo.NewMemoryRefreshTokenRepository(), func() {}
 	}
 
 	log.Println("auth repository mode: persistent (MySQL + Redis)")

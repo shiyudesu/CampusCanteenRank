@@ -1,21 +1,24 @@
 package router
 
 import (
-	"CampusCanteenRank/server/internal/auth/controller"
-	"CampusCanteenRank/server/internal/auth/repository"
-	"CampusCanteenRank/server/internal/auth/service"
+	authcontroller "CampusCanteenRank/server/internal/controller/auth"
+	stallcontroller "CampusCanteenRank/server/internal/controller/stall"
 	"CampusCanteenRank/server/internal/middleware"
+	authrepo "CampusCanteenRank/server/internal/repository/auth"
+	stallrepo "CampusCanteenRank/server/internal/repository/stall"
+	authservice "CampusCanteenRank/server/internal/service/auth"
+	stallservice "CampusCanteenRank/server/internal/service/stall"
 	"github.com/gin-gonic/gin"
 )
 
 func NewEngine(secret string) *gin.Engine {
-	return NewEngineWithRepositories(secret, repository.NewMemoryUserRepository(), repository.NewMemoryRefreshTokenRepository())
+	return NewEngineWithRepositories(secret, authrepo.NewMemoryUserRepository(), authrepo.NewMemoryRefreshTokenRepository())
 }
 
 func NewEngineWithRepositories(
 	secret string,
-	userRepo repository.UserRepository,
-	refreshRepo repository.RefreshTokenRepository,
+	userRepo authrepo.UserRepository,
+	refreshRepo authrepo.RefreshTokenRepository,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.TraceID())
@@ -23,20 +26,25 @@ func NewEngineWithRepositories(
 	r.Use(middleware.Recover())
 
 	if userRepo == nil {
-		userRepo = repository.NewMemoryUserRepository()
+		userRepo = authrepo.NewMemoryUserRepository()
 	}
 	if refreshRepo == nil {
-		refreshRepo = repository.NewMemoryRefreshTokenRepository()
+		refreshRepo = authrepo.NewMemoryRefreshTokenRepository()
 	}
 
-	authService := service.NewAuthService(userRepo, refreshRepo, secret)
-	authHandler := controller.NewAuthHandler(authService)
+	authService := authservice.NewAuthService(userRepo, refreshRepo, secret)
+	authHandler := authcontroller.NewAuthHandler(authService)
+	stallRepository := stallrepo.NewMemoryStallRepository()
+	stallHandler := stallcontroller.NewStallHandler(stallservice.NewStallService(stallRepository))
 
 	v1 := r.Group("/api/v1")
 	authGroup := v1.Group("/auth")
 	authGroup.POST("/register", authHandler.Register)
 	authGroup.POST("/login", authHandler.Login)
 	authGroup.POST("/refresh", authHandler.Refresh)
+	v1.GET("/canteens", stallHandler.ListCanteens)
+	v1.GET("/stalls", stallHandler.ListStalls)
+	v1.GET("/stalls/:stallId", middleware.OptionalAuth(secret), stallHandler.GetStallDetail)
 
 	return r
 }

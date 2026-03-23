@@ -7,11 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"CampusCanteenRank/server/internal/auth/dto"
-	"CampusCanteenRank/server/internal/auth/model"
-	"CampusCanteenRank/server/internal/auth/repository"
+	"CampusCanteenRank/server/internal/dto/auth"
+	"CampusCanteenRank/server/internal/model/auth"
 	authpkg "CampusCanteenRank/server/internal/pkg/auth"
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
+	"CampusCanteenRank/server/internal/repository/auth"
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 )
 
@@ -121,6 +122,175 @@ func TestAuthErrorCases(t *testing.T) {
 	}
 }
 
+func TestStallAndCanteenEndpoints(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	resp := requestNoBody(t, engine, http.MethodGet, "/api/v1/canteens")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("canteens status = %d, want 200", resp.Code)
+	}
+	envelope := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, envelope["code"]); got != 0 {
+		t.Fatalf("canteens code = %d, want 0", got)
+	}
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("canteens data should be object")
+	}
+	items, ok := data["items"].([]interface{})
+	if !ok || len(items) == 0 {
+		t.Fatalf("canteens items should not be empty")
+	}
+
+	resp = requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls?limit=2&sort=score_desc")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stalls status = %d, want 200", resp.Code)
+	}
+	firstPage := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, firstPage["code"]); got != 0 {
+		t.Fatalf("stalls code = %d, want 0", got)
+	}
+	firstData, ok := firstPage["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("stalls data should be object")
+	}
+	firstItems, ok := firstData["items"].([]interface{})
+	if !ok || len(firstItems) != 2 {
+		t.Fatalf("first page items size = %d, want 2", len(firstItems))
+	}
+	firstItem, ok := firstItems[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("first item should be object")
+	}
+	secondItem, ok := firstItems[1].(map[string]interface{})
+	if !ok {
+		t.Fatalf("second item should be object")
+	}
+	firstAvg, ok := firstItem["avgRating"].(float64)
+	if !ok {
+		t.Fatalf("first item avgRating should be number")
+	}
+	secondAvg, ok := secondItem["avgRating"].(float64)
+	if !ok {
+		t.Fatalf("second item avgRating should be number")
+	}
+	if firstAvg < secondAvg {
+		t.Fatalf("items should be sorted by avgRating desc")
+	}
+	if hasMore, ok := firstData["hasMore"].(bool); !ok || !hasMore {
+		t.Fatalf("first page hasMore should be true")
+	}
+	nextCursor, ok := firstData["nextCursor"].(string)
+	if !ok || nextCursor == "" {
+		t.Fatalf("first page nextCursor should not be empty")
+	}
+
+	resp = requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls?limit=2&sort=score_desc&cursor="+url.QueryEscape(nextCursor))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stalls second page status = %d, want 200", resp.Code)
+	}
+	secondPage := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, secondPage["code"]); got != 0 {
+		t.Fatalf("stalls second page code = %d, want 0", got)
+	}
+	secondData, ok := secondPage["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("stalls second page data should be object")
+	}
+	secondItems, ok := secondData["items"].([]interface{})
+	if !ok || len(secondItems) != 1 {
+		t.Fatalf("second page items size = %d, want 1", len(secondItems))
+	}
+	if hasMore, ok := secondData["hasMore"].(bool); !ok || hasMore {
+		t.Fatalf("second page hasMore should be false")
+	}
+	if _, exists := secondData["nextCursor"]; !exists {
+		t.Fatalf("second page should contain nextCursor field")
+	}
+
+	resp = requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls/101")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("stall detail status = %d, want 200", resp.Code)
+	}
+	detail := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, detail["code"]); got != 0 {
+		t.Fatalf("stall detail code = %d, want 0", got)
+	}
+	detailData, ok := detail["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("stall detail data should be object")
+	}
+	if _, exists := detailData["myRating"]; exists {
+		t.Fatalf("guest stall detail should not include myRating")
+	}
+
+	loginBody := map[string]interface{}{
+		"email":    "detail@example.com",
+		"nickname": "Detail",
+		"password": "Pass@123456",
+	}
+	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", loginBody)
+	loginResp := requestJSON(t, engine, http.MethodPost, "/api/v1/auth/login", map[string]interface{}{
+		"email":    "detail@example.com",
+		"password": "Pass@123456",
+	})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("detail login status = %d, want 200", loginResp.Code)
+	}
+	loginEnvelope := decodeEnvelope(t, loginResp.Body.Bytes())
+	loginData, ok := loginEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("login data should be object")
+	}
+	accessToken, ok := loginData["accessToken"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("access token should not be empty")
+	}
+	authedResp := requestWithAuth(t, engine, http.MethodGet, "/api/v1/stalls/101", accessToken)
+	if authedResp.Code != http.StatusOK {
+		t.Fatalf("authed stall detail status = %d, want 200", authedResp.Code)
+	}
+	authedDetail := decodeEnvelope(t, authedResp.Body.Bytes())
+	authedData, ok := authedDetail["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("authed stall detail data should be object")
+	}
+	if _, exists := authedData["myRating"]; !exists {
+		t.Fatalf("authed stall detail should include myRating field")
+	}
+
+	resp = requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls/999999")
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("stall detail not found status = %d, want 404", resp.Code)
+	}
+	notFound := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, notFound["code"]); got != 40401 {
+		t.Fatalf("stall detail not found code = %d, want 40401", got)
+	}
+}
+
+func TestStallListInvalidParams(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	resp := requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls?limit=bad")
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("invalid limit status = %d, want 400", resp.Code)
+	}
+	envelope := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, envelope["code"]); got != 40001 {
+		t.Fatalf("invalid limit code = %d, want 40001", got)
+	}
+
+	resp = requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls?cursor=bad-cursor")
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("invalid cursor status = %d, want 400", resp.Code)
+	}
+	envelope = decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, envelope["code"]); got != 40001 {
+		t.Fatalf("invalid cursor code = %d, want 40001", got)
+	}
+}
+
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body map[string]interface{}) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)
@@ -129,6 +299,23 @@ func requestJSON(t *testing.T, handler http.Handler, method string, path string,
 	}
 	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
 	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	return rr
+}
+
+func requestNoBody(t *testing.T, handler http.Handler, method string, path string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	return rr
+}
+
+func requestWithAuth(t *testing.T, handler http.Handler, method string, path string, accessToken string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	return rr

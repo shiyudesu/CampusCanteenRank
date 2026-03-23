@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"CampusCanteenRank/server/internal/auth/model"
+	"CampusCanteenRank/server/internal/model/auth"
 )
 
 var ErrNotFound = errors.New("not found")
