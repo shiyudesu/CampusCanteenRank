@@ -18,7 +18,7 @@ type tokenPayload struct {
 }
 
 func Encode(t Token) (string, error) {
-	payload := tokenPayload{CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339), ID: t.ID}
+	payload := tokenPayload{CreatedAt: t.CreatedAt.UTC().Format(time.RFC3339Nano), ID: t.ID}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return "", err
@@ -41,9 +41,13 @@ func Decode(encoded string) (*Token, error) {
 	if payload.ID <= 0 {
 		return nil, errors.New("invalid cursor")
 	}
-	createdAt, err := time.Parse(time.RFC3339, payload.CreatedAt)
+	createdAt, err := time.Parse(time.RFC3339Nano, payload.CreatedAt)
 	if err != nil {
-		return nil, errors.New("invalid cursor")
+		legacyCreatedAt, legacyErr := time.Parse(time.RFC3339, payload.CreatedAt)
+		if legacyErr != nil {
+			return nil, errors.New("invalid cursor")
+		}
+		createdAt = legacyCreatedAt
 	}
 	return &Token{CreatedAt: createdAt.UTC(), ID: payload.ID}, nil
 }

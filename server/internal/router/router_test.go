@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"testing"
 )
 
@@ -450,6 +451,369 @@ func TestUpsertStallRatingEndpoint(t *testing.T) {
 	}
 }
 
+func TestCommentCreateAndListTopLevel(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
+		"email":    "commenter@example.com",
+		"nickname": "Commenter",
+		"password": "Pass@123456",
+	})
+	loginResp := requestJSON(t, engine, http.MethodPost, "/api/v1/auth/login", map[string]interface{}{
+		"email":    "commenter@example.com",
+		"password": "Pass@123456",
+	})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("comment login status = %d, want 200", loginResp.Code)
+	}
+	loginEnvelope := decodeEnvelope(t, loginResp.Body.Bytes())
+	loginData, ok := loginEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("comment login data should be object")
+	}
+	accessToken, ok := loginData["accessToken"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("comment access token should not be empty")
+	}
+
+	createResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+		"content":       "新开的配菜窗口挺不错",
+		"rootId":        0,
+		"parentId":      0,
+		"replyToUserId": 0,
+	}, accessToken)
+	if createResp.Code != http.StatusOK {
+		t.Fatalf("create top-level comment status = %d, want 200", createResp.Code)
+	}
+	createdEnvelope := decodeEnvelope(t, createResp.Body.Bytes())
+	if got := asInt(t, createdEnvelope["code"]); got != 0 {
+		t.Fatalf("create top-level comment code = %d, want 0", got)
+	}
+	createdData, ok := createdEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("created comment data should be object")
+	}
+	createdComment, ok := createdData["comment"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("created comment should be object")
+	}
+	if got := asInt(t, createdComment["stallId"]); got != 101 {
+		t.Fatalf("created comment stallId = %d, want 101", got)
+	}
+	if got := asInt(t, createdComment["rootId"]); got != 0 {
+		t.Fatalf("created comment rootId = %d, want 0", got)
+	}
+	if got := asInt(t, createdComment["parentId"]); got != 0 {
+		t.Fatalf("created comment parentId = %d, want 0", got)
+	}
+	if got := asInt(t, createdComment["replyToUserId"]); got != 0 {
+		t.Fatalf("created comment replyToUserId = %d, want 0", got)
+	}
+	if content := asString(t, createdComment["content"]); content != "新开的配菜窗口挺不错" {
+		t.Fatalf("created comment content = %q", content)
+	}
+	author, ok := createdComment["author"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("created comment author should be object")
+	}
+	authorID := asInt(t, author["id"])
+	if authorID <= 0 {
+		t.Fatalf("created comment author id should be positive")
+	}
+	if nickname := asString(t, author["nickname"]); nickname != "Commenter" {
+		t.Fatalf("created comment nickname = %q, want Commenter", nickname)
+	}
+	if likedByMe, ok := createdComment["likedByMe"].(bool); !ok || likedByMe {
+		t.Fatalf("created comment likedByMe should be false")
+	}
+	if createdAt := asString(t, createdComment["createdAt"]); createdAt == "" {
+		t.Fatalf("created comment createdAt should not be empty")
+	}
+	createdRootID := asInt(t, createdComment["id"])
+
+	listResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls/101/comments?limit=2&sort=latest")
+	if listResp.Code != http.StatusOK {
+		t.Fatalf("list top-level comments status = %d, want 200", listResp.Code)
+	}
+	listEnvelope := decodeEnvelope(t, listResp.Body.Bytes())
+	if got := asInt(t, listEnvelope["code"]); got != 0 {
+		t.Fatalf("list top-level comments code = %d, want 0", got)
+	}
+	listData, ok := listEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("list data should be object")
+	}
+	items, ok := listData["items"].([]interface{})
+	if !ok || len(items) != 2 {
+		t.Fatalf("first page items size = %d, want 2", len(items))
+	}
+	firstItem, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("first page first item should be object")
+	}
+	if got := asInt(t, firstItem["id"]); got != createdRootID {
+		t.Fatalf("latest comment id = %d, want %d", got, createdRootID)
+	}
+	if hasMore, ok := listData["hasMore"].(bool); !ok || !hasMore {
+		t.Fatalf("first page hasMore should be true")
+	}
+	nextCursor, ok := listData["nextCursor"].(string)
+	if !ok || nextCursor == "" {
+		t.Fatalf("first page nextCursor should not be empty")
+	}
+	secondInFirst, ok := items[1].(map[string]interface{})
+	if !ok {
+		t.Fatalf("first page second item should be object")
+	}
+	secondInFirstID := asInt(t, secondInFirst["id"])
+
+	secondResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls/101/comments?limit=2&sort=latest&cursor="+url.QueryEscape(nextCursor))
+	if secondResp.Code != http.StatusOK {
+		t.Fatalf("list second page status = %d, want 200", secondResp.Code)
+	}
+	secondEnvelope := decodeEnvelope(t, secondResp.Body.Bytes())
+	if got := asInt(t, secondEnvelope["code"]); got != 0 {
+		t.Fatalf("list second page code = %d, want 0", got)
+	}
+	secondData, ok := secondEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("second page data should be object")
+	}
+	secondItems, ok := secondData["items"].([]interface{})
+	if !ok || len(secondItems) != 2 {
+		t.Fatalf("second page items size = %d, want 2", len(secondItems))
+	}
+	for _, raw := range secondItems {
+		item, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("second page item should be object")
+		}
+		if got := asInt(t, item["id"]); got == secondInFirstID {
+			t.Fatalf("cursor paging should not duplicate id=%d", got)
+		}
+	}
+	if hasMore, ok := secondData["hasMore"].(bool); !ok || hasMore {
+		t.Fatalf("second page hasMore should be false")
+	}
+
+	replyResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+		"content":       "补充：晚餐时段价格也稳定",
+		"rootId":        createdRootID,
+		"parentId":      createdRootID,
+		"replyToUserId": authorID,
+	}, accessToken)
+	if replyResp.Code != http.StatusOK {
+		t.Fatalf("create reply status = %d, want 200", replyResp.Code)
+	}
+	replyEnvelope := decodeEnvelope(t, replyResp.Body.Bytes())
+	if got := asInt(t, replyEnvelope["code"]); got != 0 {
+		t.Fatalf("create reply code = %d, want 0", got)
+	}
+	replyData, ok := replyEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("reply data should be object")
+	}
+	replyComment, ok := replyData["comment"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("reply comment should be object")
+	}
+	if got := asInt(t, replyComment["rootId"]); got != createdRootID {
+		t.Fatalf("reply rootId = %d, want %d", got, createdRootID)
+	}
+	if got := asInt(t, replyComment["parentId"]); got != createdRootID {
+		t.Fatalf("reply parentId = %d, want %d", got, createdRootID)
+	}
+	if got := asInt(t, replyComment["replyToUserId"]); got != authorID {
+		t.Fatalf("reply replyToUserId = %d, want %d", got, authorID)
+	}
+
+	refreshFirstPage := requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls/101/comments?limit=2&sort=latest")
+	if refreshFirstPage.Code != http.StatusOK {
+		t.Fatalf("refresh first page status = %d, want 200", refreshFirstPage.Code)
+	}
+	refreshEnvelope := decodeEnvelope(t, refreshFirstPage.Body.Bytes())
+	refreshData, ok := refreshEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("refresh list data should be object")
+	}
+	refreshItems, ok := refreshData["items"].([]interface{})
+	if !ok || len(refreshItems) == 0 {
+		t.Fatalf("refresh list items should not be empty")
+	}
+	latestRoot, ok := refreshItems[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("latest root should be object")
+	}
+	if got := asInt(t, latestRoot["replyCount"]); got != 1 {
+		t.Fatalf("latest root replyCount = %d, want 1", got)
+	}
+
+	badCursorResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls/101/comments?cursor=bad-cursor")
+	if badCursorResp.Code != http.StatusBadRequest {
+		t.Fatalf("bad comment cursor status = %d, want 400", badCursorResp.Code)
+	}
+	badCursorEnvelope := decodeEnvelope(t, badCursorResp.Body.Bytes())
+	if got := asInt(t, badCursorEnvelope["code"]); got != 40001 {
+		t.Fatalf("bad comment cursor code = %d, want 40001", got)
+	}
+
+	badSortResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls/101/comments?sort=hot")
+	if badSortResp.Code != http.StatusBadRequest {
+		t.Fatalf("bad comment sort status = %d, want 400", badSortResp.Code)
+	}
+	badSortEnvelope := decodeEnvelope(t, badSortResp.Body.Bytes())
+	if got := asInt(t, badSortEnvelope["code"]); got != 40001 {
+		t.Fatalf("bad comment sort code = %d, want 40001", got)
+	}
+
+	guestCreateResp := requestJSON(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+		"content":       "游客不应可发评论",
+		"rootId":        0,
+		"parentId":      0,
+		"replyToUserId": 0,
+	})
+	if guestCreateResp.Code != http.StatusUnauthorized {
+		t.Fatalf("guest create comment status = %d, want 401", guestCreateResp.Code)
+	}
+	guestCreateEnvelope := decodeEnvelope(t, guestCreateResp.Body.Bytes())
+	if got := asInt(t, guestCreateEnvelope["code"]); got != 40101 {
+		t.Fatalf("guest create comment code = %d, want 40101", got)
+	}
+
+	invalidReplyResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+		"content":       "replyToUserId 与 parent 不一致",
+		"rootId":        createdRootID,
+		"parentId":      createdRootID,
+		"replyToUserId": authorID + 999,
+	}, accessToken)
+	if invalidReplyResp.Code != http.StatusBadRequest {
+		t.Fatalf("invalid reply relation status = %d, want 400", invalidReplyResp.Code)
+	}
+	invalidReplyEnvelope := decodeEnvelope(t, invalidReplyResp.Body.Bytes())
+	if got := asInt(t, invalidReplyEnvelope["code"]); got != 40001 {
+		t.Fatalf("invalid reply relation code = %d, want 40001", got)
+	}
+
+	notFoundStallResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/999999/comments", map[string]interface{}{
+		"content":       "不存在窗口",
+		"rootId":        0,
+		"parentId":      0,
+		"replyToUserId": 0,
+	}, accessToken)
+	if notFoundStallResp.Code != http.StatusNotFound {
+		t.Fatalf("create comment on unknown stall status = %d, want 404", notFoundStallResp.Code)
+	}
+	notFoundStallEnvelope := decodeEnvelope(t, notFoundStallResp.Body.Bytes())
+	if got := asInt(t, notFoundStallEnvelope["code"]); got != 40401 {
+		t.Fatalf("create comment on unknown stall code = %d, want 40401", got)
+	}
+}
+
+func TestCommentCursorPaginationSameSecondNoLoss(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
+		"email":    "same-second@example.com",
+		"nickname": "SameSecond",
+		"password": "Pass@123456",
+	})
+	loginResp := requestJSON(t, engine, http.MethodPost, "/api/v1/auth/login", map[string]interface{}{
+		"email":    "same-second@example.com",
+		"password": "Pass@123456",
+	})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("same-second login status = %d, want 200", loginResp.Code)
+	}
+	loginEnvelope := decodeEnvelope(t, loginResp.Body.Bytes())
+	loginData, ok := loginEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("same-second login data should be object")
+	}
+	accessToken, ok := loginData["accessToken"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("same-second access token should not be empty")
+	}
+
+	createdIDs := make(map[int]int)
+	for i := 0; i < 4; i++ {
+		resp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+			"content":       "same-second comment #" + strconv.Itoa(i),
+			"rootId":        0,
+			"parentId":      0,
+			"replyToUserId": 0,
+		}, accessToken)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("create same-second comment[%d] status = %d, want 200", i, resp.Code)
+		}
+		env := decodeEnvelope(t, resp.Body.Bytes())
+		data, ok := env["data"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("create same-second data should be object")
+		}
+		comment, ok := data["comment"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("create same-second comment should be object")
+		}
+		id := asInt(t, comment["id"])
+		createdIDs[id] = i
+	}
+
+	seen := make(map[int]struct{})
+	var cursorText string
+	for page := 0; page < 20; page++ {
+		path := "/api/v1/stalls/101/comments?limit=1&sort=latest"
+		if cursorText != "" {
+			path += "&cursor=" + url.QueryEscape(cursorText)
+		}
+		resp := requestNoBody(t, engine, http.MethodGet, path)
+		if resp.Code != http.StatusOK {
+			t.Fatalf("same-second list page[%d] status = %d, want 200", page, resp.Code)
+		}
+		env := decodeEnvelope(t, resp.Body.Bytes())
+		data, ok := env["data"].(map[string]interface{})
+		if !ok {
+			t.Fatalf("same-second list data should be object")
+		}
+		items, ok := data["items"].([]interface{})
+		if !ok {
+			t.Fatalf("same-second list items should be array")
+		}
+		if len(items) == 0 {
+			break
+		}
+		item, ok := items[0].(map[string]interface{})
+		if !ok {
+			t.Fatalf("same-second item should be object")
+		}
+		id := asInt(t, item["id"])
+		if _, exists := seen[id]; exists {
+			t.Fatalf("same-second pagination duplicated comment id=%d", id)
+		}
+		seen[id] = struct{}{}
+
+		hasMore, ok := data["hasMore"].(bool)
+		if !ok {
+			t.Fatalf("same-second hasMore should be bool")
+		}
+		nextCursor, _ := data["nextCursor"].(string)
+		if !hasMore {
+			break
+		}
+		if nextCursor == "" {
+			t.Fatalf("same-second hasMore=true requires non-empty nextCursor")
+		}
+		cursorText = nextCursor
+	}
+
+	if len(seen) < len(createdIDs) {
+		for id := range createdIDs {
+			if _, exists := seen[id]; !exists {
+				t.Fatalf("same-second pagination missed created comment id=%d", id)
+			}
+		}
+	}
+}
+
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body map[string]interface{}) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)
@@ -528,6 +892,15 @@ func asFloat(t *testing.T, v interface{}) float64 {
 		t.Fatalf("value should be float64 in json map")
 	}
 	return f
+}
+
+func asString(t *testing.T, v interface{}) string {
+	t.Helper()
+	s, ok := v.(string)
+	if !ok {
+		t.Fatalf("value should be string in json map")
+	}
+	return s
 }
 
 func assertFloatNear(t *testing.T, got float64, want float64, tolerance float64) {

@@ -74,6 +74,25 @@ func (r *MySQLUserRepository) GetByEmail(ctx context.Context, email string) (*mo
 	}, nil
 }
 
+func (r *MySQLUserRepository) GetByID(ctx context.Context, id int64) (*model.User, error) {
+	var rec mysqlUserRecord
+	err := r.db.WithContext(ctx).Where("id = ?", id).First(&rec).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	return &model.User{
+		ID:           rec.ID,
+		Nickname:     rec.Nickname,
+		Email:        rec.Email,
+		PasswordHash: rec.PasswordHash,
+		Status:       rec.Status,
+		CreatedAt:    rec.CreatedAt,
+	}, nil
+}
+
 func isMySQLDuplicate(err error) bool {
 	var mysqlErr *mysqlDriver.MySQLError
 	if errors.As(err, &mysqlErr) {

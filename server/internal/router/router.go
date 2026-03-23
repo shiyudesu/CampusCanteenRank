@@ -2,11 +2,14 @@ package router
 
 import (
 	authcontroller "CampusCanteenRank/server/internal/controller/auth"
+	commentcontroller "CampusCanteenRank/server/internal/controller/comment"
 	stallcontroller "CampusCanteenRank/server/internal/controller/stall"
 	"CampusCanteenRank/server/internal/middleware"
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
+	commentrepo "CampusCanteenRank/server/internal/repository/comment"
 	stallrepo "CampusCanteenRank/server/internal/repository/stall"
 	authservice "CampusCanteenRank/server/internal/service/auth"
+	commentservice "CampusCanteenRank/server/internal/service/comment"
 	stallservice "CampusCanteenRank/server/internal/service/stall"
 	"github.com/gin-gonic/gin"
 )
@@ -35,7 +38,9 @@ func NewEngineWithRepositories(
 	authService := authservice.NewAuthService(userRepo, refreshRepo, secret)
 	authHandler := authcontroller.NewAuthHandler(authService)
 	stallRepository := stallrepo.NewMemoryStallRepository()
+	commentRepository := commentrepo.NewMemoryCommentRepository()
 	stallHandler := stallcontroller.NewStallHandler(stallservice.NewStallService(stallRepository))
+	commentHandler := commentcontroller.NewCommentHandler(commentservice.NewCommentService(commentRepository, stallRepository, userRepo))
 
 	v1 := r.Group("/api/v1")
 	authGroup := v1.Group("/auth")
@@ -46,6 +51,8 @@ func NewEngineWithRepositories(
 	v1.GET("/stalls", stallHandler.ListStalls)
 	v1.GET("/stalls/:stallId", middleware.OptionalAuth(secret), stallHandler.GetStallDetail)
 	v1.POST("/stalls/:stallId/ratings", middleware.Auth(secret), stallHandler.UpsertUserRating)
+	v1.POST("/stalls/:stallId/comments", middleware.Auth(secret), commentHandler.CreateComment)
+	v1.GET("/stalls/:stallId/comments", commentHandler.ListTopLevelComments)
 
 	return r
 }

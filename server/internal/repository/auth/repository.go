@@ -16,6 +16,7 @@ var ErrAlreadyExists = errors.New("already exists")
 type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
 	GetByEmail(ctx context.Context, email string) (*model.User, error)
+	GetByID(ctx context.Context, id int64) (*model.User, error)
 }
 
 type RefreshTokenRecord struct {
@@ -33,10 +34,15 @@ type MemoryUserRepository struct {
 	mu      sync.RWMutex
 	nextID  int64
 	byEmail map[string]*model.User
+	byID    map[int64]*model.User
 }
 
 func NewMemoryUserRepository() *MemoryUserRepository {
-	return &MemoryUserRepository{nextID: 1000, byEmail: make(map[string]*model.User)}
+	return &MemoryUserRepository{
+		nextID:  1000,
+		byEmail: make(map[string]*model.User),
+		byID:    make(map[int64]*model.User),
+	}
 }
 
 func (r *MemoryUserRepository) Create(_ context.Context, user *model.User) error {
@@ -50,6 +56,7 @@ func (r *MemoryUserRepository) Create(_ context.Context, user *model.User) error
 	clone.ID = r.nextID
 	clone.CreatedAt = time.Now().UTC()
 	r.byEmail[user.Email] = &clone
+	r.byID[clone.ID] = &clone
 	user.ID = clone.ID
 	user.CreatedAt = clone.CreatedAt
 	return nil
@@ -59,6 +66,17 @@ func (r *MemoryUserRepository) GetByEmail(_ context.Context, email string) (*mod
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	u, ok := r.byEmail[email]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	clone := *u
+	return &clone, nil
+}
+
+func (r *MemoryUserRepository) GetByID(_ context.Context, id int64) (*model.User, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	u, ok := r.byID[id]
 	if !ok {
 		return nil, ErrNotFound
 	}
