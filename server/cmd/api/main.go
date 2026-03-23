@@ -10,6 +10,7 @@ import (
 	logpkg "CampusCanteenRank/server/internal/pkg/logger"
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
 	commentrepo "CampusCanteenRank/server/internal/repository/comment"
+	rankingrepo "CampusCanteenRank/server/internal/repository/ranking"
 	stallrepo "CampusCanteenRank/server/internal/repository/stall"
 	"CampusCanteenRank/server/internal/router"
 	"github.com/redis/go-redis/v9"
@@ -27,10 +28,10 @@ func main() {
 		secret = "dev-only-secret-change-me-please-1234567890"
 	}
 
-	userRepo, refreshRepo, stallRepository, commentRepository, cleanup := buildRepositories()
+	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories()
 	defer cleanup()
 
-	r := router.NewEngineWithAllRepositories(secret, userRepo, refreshRepo, stallRepository, commentRepository)
+	r := router.NewEngineWithAllRepositories(secret, userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository)
 	if err := r.Run(":8080"); err != nil {
 		log.Fatalf("server startup failed: %v", err)
 	}
@@ -41,6 +42,7 @@ func buildRepositories() (
 	authrepo.RefreshTokenRepository,
 	stallrepo.StallRepository,
 	commentrepo.CommentRepository,
+	rankingrepo.RankingRepository,
 	func(),
 ) {
 	mysqlDSN := os.Getenv("MYSQL_DSN")
@@ -104,7 +106,7 @@ func buildRepositories() (
 	}
 
 	log.Println("repository mode: persistent (MySQL + Redis)")
-	return userRepo, refreshRepo, stallRepository, commentRepository, func() {
+	return userRepo, refreshRepo, stallRepository, commentRepository, rankingrepo.NewMemoryRankingRepository(), func() {
 		_ = redisClient.Close()
 	}
 }
@@ -114,11 +116,13 @@ func memoryRepositories() (
 	authrepo.RefreshTokenRepository,
 	stallrepo.StallRepository,
 	commentrepo.CommentRepository,
+	rankingrepo.RankingRepository,
 	func(),
 ) {
 	return authrepo.NewMemoryUserRepository(),
 		authrepo.NewMemoryRefreshTokenRepository(),
 		stallrepo.NewMemoryStallRepository(),
 		commentrepo.NewMemoryCommentRepository(),
+		rankingrepo.NewMemoryRankingRepository(),
 		func() {}
 }

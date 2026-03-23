@@ -4,14 +4,17 @@ import (
 	authcontroller "CampusCanteenRank/server/internal/controller/auth"
 	commentcontroller "CampusCanteenRank/server/internal/controller/comment"
 	mecontroller "CampusCanteenRank/server/internal/controller/me"
+	rankingcontroller "CampusCanteenRank/server/internal/controller/ranking"
 	stallcontroller "CampusCanteenRank/server/internal/controller/stall"
 	"CampusCanteenRank/server/internal/middleware"
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
 	commentrepo "CampusCanteenRank/server/internal/repository/comment"
+	rankingrepo "CampusCanteenRank/server/internal/repository/ranking"
 	stallrepo "CampusCanteenRank/server/internal/repository/stall"
 	authservice "CampusCanteenRank/server/internal/service/auth"
 	commentservice "CampusCanteenRank/server/internal/service/comment"
 	meservice "CampusCanteenRank/server/internal/service/me"
+	rankingservice "CampusCanteenRank/server/internal/service/ranking"
 	stallservice "CampusCanteenRank/server/internal/service/stall"
 	"github.com/gin-gonic/gin"
 )
@@ -23,6 +26,7 @@ func NewEngine(secret string) *gin.Engine {
 		authrepo.NewMemoryRefreshTokenRepository(),
 		stallrepo.NewMemoryStallRepository(),
 		commentrepo.NewMemoryCommentRepository(),
+		rankingrepo.NewMemoryRankingRepository(),
 	)
 }
 
@@ -37,6 +41,7 @@ func NewEngineWithRepositories(
 		refreshRepo,
 		stallrepo.NewMemoryStallRepository(),
 		commentrepo.NewMemoryCommentRepository(),
+		rankingrepo.NewMemoryRankingRepository(),
 	)
 }
 
@@ -46,6 +51,7 @@ func NewEngineWithAllRepositories(
 	refreshRepo authrepo.RefreshTokenRepository,
 	stallRepository stallrepo.StallRepository,
 	commentRepository commentrepo.CommentRepository,
+	rankingRepository rankingrepo.RankingRepository,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.TraceID())
@@ -64,12 +70,16 @@ func NewEngineWithAllRepositories(
 	if commentRepository == nil {
 		commentRepository = commentrepo.NewMemoryCommentRepository()
 	}
+	if rankingRepository == nil {
+		rankingRepository = rankingrepo.NewMemoryRankingRepository()
+	}
 
 	authService := authservice.NewAuthService(userRepo, refreshRepo, secret)
 	authHandler := authcontroller.NewAuthHandler(authService)
 	stallHandler := stallcontroller.NewStallHandler(stallservice.NewStallService(stallRepository))
 	commentHandler := commentcontroller.NewCommentHandler(commentservice.NewCommentService(commentRepository, stallRepository, userRepo))
 	meHandler := mecontroller.NewMeHandler(meservice.NewMeService(commentRepository, stallRepository, userRepo))
+	rankingHandler := rankingcontroller.NewRankingHandler(rankingservice.NewRankingService(rankingRepository))
 
 	v1 := r.Group("/api/v1")
 	authGroup := v1.Group("/auth")
@@ -85,6 +95,7 @@ func NewEngineWithAllRepositories(
 	v1.GET("/comments/:rootCommentId/replies", middleware.OptionalAuth(secret), commentHandler.ListReplies)
 	v1.POST("/comments/:commentId/like", middleware.Auth(secret), commentHandler.LikeComment)
 	v1.DELETE("/comments/:commentId/like", middleware.Auth(secret), commentHandler.UnlikeComment)
+	v1.GET("/rankings", rankingHandler.ListRankings)
 	v1.GET("/me/comments", middleware.Auth(secret), meHandler.ListMyComments)
 	v1.GET("/me/ratings", middleware.Auth(secret), meHandler.ListMyRatings)
 

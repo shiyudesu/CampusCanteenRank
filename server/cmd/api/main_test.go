@@ -5,6 +5,7 @@ import (
 
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
 	commentrepo "CampusCanteenRank/server/internal/repository/comment"
+	rankingrepo "CampusCanteenRank/server/internal/repository/ranking"
 	stallrepo "CampusCanteenRank/server/internal/repository/stall"
 )
 
@@ -12,7 +13,7 @@ func TestBuildRepositoriesFallsBackToMemoryWhenEnvMissing(t *testing.T) {
 	t.Setenv("MYSQL_DSN", "")
 	t.Setenv("REDIS_ADDR", "")
 
-	userRepo, refreshRepo, stallRepository, commentRepository, cleanup := buildRepositories()
+	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories()
 	t.Cleanup(cleanup)
 
 	if _, ok := userRepo.(*authrepo.MemoryUserRepository); !ok {
@@ -27,13 +28,16 @@ func TestBuildRepositoriesFallsBackToMemoryWhenEnvMissing(t *testing.T) {
 	if _, ok := commentRepository.(*commentrepo.MemoryCommentRepository); !ok {
 		t.Fatalf("expected MemoryCommentRepository fallback when env missing")
 	}
+	if _, ok := rankingRepository.(*rankingrepo.MemoryRankingRepository); !ok {
+		t.Fatalf("expected MemoryRankingRepository fallback when env missing")
+	}
 }
 
 func TestBuildRepositoriesFallsBackToMemoryWhenRedisMissing(t *testing.T) {
 	t.Setenv("MYSQL_DSN", "root:pass@tcp(127.0.0.1:3306)/canteen")
 	t.Setenv("REDIS_ADDR", "")
 
-	userRepo, refreshRepo, stallRepository, commentRepository, cleanup := buildRepositories()
+	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories()
 	t.Cleanup(cleanup)
 
 	if _, ok := userRepo.(*authrepo.MemoryUserRepository); !ok {
@@ -47,5 +51,8 @@ func TestBuildRepositoriesFallsBackToMemoryWhenRedisMissing(t *testing.T) {
 	}
 	if _, ok := commentRepository.(*commentrepo.MemoryCommentRepository); !ok {
 		t.Fatalf("expected MemoryCommentRepository fallback when redis env missing")
+	}
+	if _, ok := rankingRepository.(*rankingrepo.MemoryRankingRepository); !ok {
+		t.Fatalf("expected MemoryRankingRepository fallback when redis env missing")
 	}
 }

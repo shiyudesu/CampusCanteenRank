@@ -1384,6 +1384,163 @@ func TestMeEndpoints(t *testing.T) {
 	}
 }
 
+func TestRankingEndpoints(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	resp := requestNoBody(t, engine, http.MethodGet, "/api/v1/rankings?scope=global&scopeId=0&foodTypeId=0&days=30&sort=score_desc&limit=2")
+	if resp.Code != http.StatusOK {
+		t.Fatalf("ranking first page status = %d, want 200", resp.Code)
+	}
+	envelope := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, envelope["code"]); got != 0 {
+		t.Fatalf("ranking first page code = %d, want 0", got)
+	}
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking first page data should be object")
+	}
+	items, ok := data["items"].([]interface{})
+	if !ok || len(items) != 2 {
+		t.Fatalf("ranking first page len = %d, want 2", len(items))
+	}
+	firstItem, ok := items[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking first item should be object")
+	}
+	secondItem, ok := items[1].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking second item should be object")
+	}
+	if asInt(t, firstItem["rank"]) != 1 || asInt(t, secondItem["rank"]) != 2 {
+		t.Fatalf("ranking rank should be 1,2 on first page")
+	}
+	if asFloat(t, firstItem["avgRating"]) < asFloat(t, secondItem["avgRating"]) {
+		t.Fatalf("ranking should be score_desc on first page")
+	}
+	if hasMore, ok := data["hasMore"].(bool); !ok || !hasMore {
+		t.Fatalf("ranking first page hasMore should be true")
+	}
+	nextCursor, ok := data["nextCursor"].(string)
+	if !ok || nextCursor == "" {
+		t.Fatalf("ranking first page nextCursor should be non-empty")
+	}
+
+	resp = requestNoBody(t, engine, http.MethodGet, "/api/v1/rankings?scope=global&scopeId=0&foodTypeId=0&days=30&sort=score_desc&limit=2&cursor="+url.QueryEscape(nextCursor))
+	if resp.Code != http.StatusOK {
+		t.Fatalf("ranking second page status = %d, want 200", resp.Code)
+	}
+	secondEnvelope := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, secondEnvelope["code"]); got != 0 {
+		t.Fatalf("ranking second page code = %d, want 0", got)
+	}
+	secondData, ok := secondEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking second page data should be object")
+	}
+	secondItems, ok := secondData["items"].([]interface{})
+	if !ok || len(secondItems) == 0 {
+		t.Fatalf("ranking second page should have items")
+	}
+	secondFirst, ok := secondItems[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking second page item should be object")
+	}
+	if asInt(t, secondFirst["stallId"]) == asInt(t, firstItem["stallId"]) || asInt(t, secondFirst["stallId"]) == asInt(t, secondItem["stallId"]) {
+		t.Fatalf("ranking cursor page should not duplicate first page items")
+	}
+
+	hotResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/rankings?scope=global&scopeId=0&foodTypeId=0&days=30&sort=hot_desc&limit=20")
+	if hotResp.Code != http.StatusOK {
+		t.Fatalf("ranking hot list status = %d, want 200", hotResp.Code)
+	}
+	hotEnvelope := decodeEnvelope(t, hotResp.Body.Bytes())
+	hotData, ok := hotEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking hot data should be object")
+	}
+	hotItems, ok := hotData["items"].([]interface{})
+	if !ok || len(hotItems) < 2 {
+		t.Fatalf("ranking hot items should be >= 2")
+	}
+	hotFirst, ok := hotItems[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking hot first item should be object")
+	}
+	hotSecond, ok := hotItems[1].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking hot second item should be object")
+	}
+	if asFloat(t, hotFirst["hotScore"]) < asFloat(t, hotSecond["hotScore"]) {
+		t.Fatalf("ranking should be hot_desc")
+	}
+
+	canteenResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/rankings?scope=canteen&scopeId=1&days=30&sort=score_desc&limit=20")
+	if canteenResp.Code != http.StatusOK {
+		t.Fatalf("ranking canteen scope status = %d, want 200", canteenResp.Code)
+	}
+	canteenEnvelope := decodeEnvelope(t, canteenResp.Body.Bytes())
+	canteenData, ok := canteenEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking canteen data should be object")
+	}
+	canteenItems, ok := canteenData["items"].([]interface{})
+	if !ok || len(canteenItems) == 0 {
+		t.Fatalf("ranking canteen items should not be empty")
+	}
+	for _, raw := range canteenItems {
+		item, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("ranking canteen item should be object")
+		}
+		if asInt(t, item["canteenId"]) != 1 {
+			t.Fatalf("ranking canteen scope should only return canteenId=1")
+		}
+	}
+
+	foodTypeResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/rankings?scope=global&scopeId=0&foodTypeId=2&days=30&sort=score_desc&limit=20")
+	if foodTypeResp.Code != http.StatusOK {
+		t.Fatalf("ranking foodType filter status = %d, want 200", foodTypeResp.Code)
+	}
+	foodTypeEnvelope := decodeEnvelope(t, foodTypeResp.Body.Bytes())
+	foodTypeData, ok := foodTypeEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("ranking foodType data should be object")
+	}
+	foodTypeItems, ok := foodTypeData["items"].([]interface{})
+	if !ok || len(foodTypeItems) == 0 {
+		t.Fatalf("ranking foodType items should not be empty")
+	}
+	for _, raw := range foodTypeItems {
+		item, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("ranking foodType item should be object")
+		}
+		if asInt(t, item["foodTypeId"]) != 2 {
+			t.Fatalf("ranking foodType filter should only return foodTypeId=2")
+		}
+	}
+
+	badCases := []string{
+		"/api/v1/rankings?scope=unknown&scopeId=0&days=30&sort=score_desc",
+		"/api/v1/rankings?scope=canteen&scopeId=0&days=30&sort=score_desc",
+		"/api/v1/rankings?scope=global&scopeId=1&days=30&sort=score_desc",
+		"/api/v1/rankings?scope=global&scopeId=0&days=15&sort=score_desc",
+		"/api/v1/rankings?scope=global&scopeId=0&days=30&sort=latest",
+		"/api/v1/rankings?scope=global&scopeId=0&days=30&sort=score_desc&cursor=bad-cursor",
+		"/api/v1/rankings?scope=global&scopeId=0&days=30&sort=score_desc&limit=abc",
+	}
+	for _, path := range badCases {
+		badResp := requestNoBody(t, engine, http.MethodGet, path)
+		if badResp.Code != http.StatusBadRequest {
+			t.Fatalf("ranking bad case %s status = %d, want 400", path, badResp.Code)
+		}
+		badEnvelope := decodeEnvelope(t, badResp.Body.Bytes())
+		if got := asInt(t, badEnvelope["code"]); got != 40001 {
+			t.Fatalf("ranking bad case %s code = %d, want 40001", path, got)
+		}
+	}
+}
+
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body map[string]interface{}) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)
