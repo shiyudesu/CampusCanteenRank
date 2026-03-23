@@ -1,0 +1,71 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ccr-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-canteen_rank}
+      MYSQL_USER: ${MYSQL_USER:-ccr}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-ccr}
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  redis:
+    image: redis:7-alpine
+    container_name: ccr-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - redis-data:/data
+
+  api:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: ccr-api
+    environment:
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-secret-change-me-please-1234567890}
+      MYSQL_DSN: ${MYSQL_DSN:-ccr:ccr@tcp(mysql:3306)/canteen_rank?charset=utf8mb4&parseTime=True&loc=Local}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_DB: ${REDIS_DB:-0}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_REFRESH_PREFIX: ${REDIS_REFRESH_PREFIX:-auth:refresh:}
+    ports:
+      - "${API_PORT:-8080}:8080"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    image: node:20-alpine
+    container_name: ccr-web
+    working_dir: /app
+    command: ["sh", "-c", "if [ -f package.json ]; then corepack enable && pnpm install && pnpm dev --host; else echo 'web/package.json not found, web service idle'; tail -f /dev/null; fi"]
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8080}
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    volumes:
+      - ./web:/app
+    depends_on:
+      - api
+
+volumes:
+  mysql-data:
+  redis-data:

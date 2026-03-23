@@ -17,6 +17,47 @@
 - 若在 IDE 中出现“包无法导入”，通常是因为只打开了仓库根目录但没有启用工作区模式；当前仓库已提供根目录 `go.work`
 - 在仓库根目录运行测试时，请使用 `go test ./server/...`；`go test ./...` 在 workspace 根目录下会因为不包含模块而失败
 
+## 本地开发快速启动
+
+### 1) 准备环境变量
+
+- 复制 `.env.example` 为你的本地环境文件（或直接使用示例文件）：
+  - `cp .env.example .env.dev`
+
+### 2) 启动基础设施（MySQL + Redis + API + Web占位）
+
+- 使用 Makefile：
+  - `make dev-up`
+- 或直接使用 Docker Compose：
+  - `docker compose --env-file .env.example up -d --build`
+
+> 当前仓库未包含前端 `web/package.json`，`web` 容器会进入空闲等待模式，不影响后端联调。
+
+### 3) 本地运行后端 API（不走容器）
+
+- `make api-run`
+- 或：`go run ./server/cmd/api`
+
+### 4) 运行测试
+
+- 后端测试：`go test ./server/...`
+- 或：`make test-backend`
+
+### 5) 关闭本地容器
+
+- `make dev-down`
+
+## 配置项说明（后端）
+
+后端读取以下关键环境变量（见 `server/cmd/api/main.go`）：
+
+- `JWT_SECRET`：JWT 签名密钥（开发环境可使用示例值，生产必须替换）
+- `MYSQL_DSN`：MySQL 连接串，缺失时回退内存仓储
+- `REDIS_ADDR`：Redis 地址，缺失时回退内存仓储
+- `REDIS_DB` / `REDIS_PASSWORD`：Redis 库号与密码
+- `REDIS_REFRESH_PREFIX`：刷新令牌键前缀
+- `LOG_LEVEL`：日志等级（默认 `info`）
+
 ## 关键流程（摘要）
 
 - 模块化开发：每个模块完成后必须先测试，测试通过后再推送到 GitHub
