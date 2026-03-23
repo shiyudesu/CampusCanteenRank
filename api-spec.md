@@ -116,6 +116,28 @@
 
 `POST /auth/refresh`
 
+请求：
+
+```json
+{
+  "refreshToken": "xxx"
+}
+```
+
+响应：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "accessToken": "xxx",
+    "refreshToken": "xxx",
+    "expiresIn": 7200
+  }
+}
+```
+
 ---
 
 ## 4. 食堂与窗口模块

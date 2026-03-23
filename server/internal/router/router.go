@@ -8,11 +8,24 @@ import (
 )
 
 func NewEngine(secret string) *gin.Engine {
+	return NewEngineWithRepositories(secret, repository.NewMemoryUserRepository(), repository.NewMemoryRefreshTokenRepository())
+}
+
+func NewEngineWithRepositories(
+	secret string,
+	userRepo repository.UserRepository,
+	refreshRepo repository.RefreshTokenRepository,
+) *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Recovery())
 
-	userRepo := repository.NewMemoryUserRepository()
-	refreshRepo := repository.NewMemoryRefreshTokenRepository()
+	if userRepo == nil {
+		userRepo = repository.NewMemoryUserRepository()
+	}
+	if refreshRepo == nil {
+		refreshRepo = repository.NewMemoryRefreshTokenRepository()
+	}
+
 	authService := service.NewAuthService(userRepo, refreshRepo, secret)
 	authHandler := controller.NewAuthHandler(authService)
 

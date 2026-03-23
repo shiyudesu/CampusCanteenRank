@@ -67,7 +67,7 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (in
 		Status:       1,
 	}
 	if err := s.users.Create(ctx, user); err != nil {
-		if strings.Contains(err.Error(), "exists") {
+		if errors.Is(err, repository.ErrAlreadyExists) {
 			return 0, errpkg.New(errpkg.CodeConflict, "email already exists", nil)
 		}
 		return 0, errpkg.New(errpkg.CodeInternal, "internal error", err)

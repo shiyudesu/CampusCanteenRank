@@ -11,6 +11,7 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
+var ErrAlreadyExists = errors.New("already exists")
 
 type UserRepository interface {
 	Create(ctx context.Context, user *model.User) error
@@ -42,7 +43,7 @@ func (r *MemoryUserRepository) Create(_ context.Context, user *model.User) error
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.byEmail[user.Email]; exists {
-		return errors.New("email exists")
+		return ErrAlreadyExists
 	}
 	r.nextID++
 	clone := *user

@@ -49,6 +49,14 @@
   - 仓储接口定义：`UserRepository`、`RefreshTokenRepository`
   - 内存实现：便于在无数据库阶段先打通业务闭环
 
+- `server/internal/auth/repository/mysql_user_repository.go`
+  - MySQL 用户仓储实现（基于 GORM）
+  - 启动阶段自动迁移 `users` 表结构，映射统一仓储接口
+
+- `server/internal/auth/repository/redis_refresh_token_repository.go`
+  - Redis refresh token 仓储实现
+  - 使用 key TTL + 删除消费（DEL）保证 refresh token 一次性消费
+
 - `server/internal/auth/service/auth_service.go`
   - 核心业务逻辑：注册、登录、刷新 token
   - 密码哈希、JWT 签发、refresh token 轮换
@@ -265,6 +273,20 @@ type Envelope struct {
 
 这就是一次性 refresh token 的关键。
 
+### `MySQLUserRepository`
+
+- 使用 `gorm` + MySQL 驱动实现 `UserRepository`
+- `Create` 负责用户落库并回填 `ID/CreatedAt`
+- 唯一键冲突（email）统一映射到 `ErrAlreadyExists`，由 service 映射为 `40901`
+
+### `RedisRefreshTokenRepository`
+
+- 使用 `go-redis/v9` 实现 `RefreshTokenRepository`
+- `Save` 根据 token 过期时间设置 key TTL（过期即自动清理）
+- `Consume` 通过 `DEL` 判断是否存在，删除成功即消费成功，删除 0 行视为 `ErrNotFound`
+
+这实现了“持久化 + 一次性消费”语义，支持服务重启后的 token 状态一致性。
+
 ---
 
 ## 3.7 业务层（核心）
@@ -385,6 +407,23 @@ type Envelope struct {
 - main 只做启动
 - 业务组件装配逻辑集中到 router
 
+### `NewEngineWithRepositories(secret, userRepo, refreshRepo)`
+
+- 提供可注入仓储的装配入口，便于在生产使用 MySQL/Redis，在测试保持内存仓储
+- 若传入 nil，则自动回退到内存实现，保持兼容性
+
+### 启动装配（`server/cmd/api/main.go`）
+
+- 新增环境驱动仓储选择逻辑：
+  - 当 `MYSQL_DSN` 与 `REDIS_ADDR` 均存在：启用 MySQL + Redis 持久化仓储
+  - 任一缺失或初始化失败：自动回退到内存仓储
+- 支持环境变量：
+  - `MYSQL_DSN`
+  - `REDIS_ADDR`
+  - `REDIS_PASSWORD`（可选）
+  - `REDIS_DB`（可选，默认 0）
+  - `REDIS_REFRESH_PREFIX`（可选，默认 `auth:refresh`）
+
 ---
 
 ## 3.10 中间件准备
@@ -462,31 +501,30 @@ type Envelope struct {
 
 这些都是为了先把模块闭环跑通，后续再逐步替换持久化实现。
 
+> 更新：当前已完成 Auth 持久化升级（MySQL + Redis）并在 `api-spec.md` 补齐 refresh 请求/响应示例；该段用于保留第一阶段实现背景。
+
 ---
 
 ## 6. 后续演进建议（按优先级）
 
-1. **auth 持久化升级（高优先）**
-   - 用户写入 MySQL
-   - refresh token 存 Redis（含 TTL）
-
-2. **中间件治理（高优先）**
+1. **中间件治理（高优先）**
    - TraceID
    - 结构化日志（Zap）
    - Recover 统一错误格式
 
-3. **契约补完（高优先）**
-   - 在 `api-spec.md` 明确 refresh 请求/响应示例
-
-4. **安全增强（中优先）**
+2. **安全增强（中优先）**
    - 登录限流
    - 密码复杂度更细规则
    - refresh token 设备维度管理
 
-5. **测试增强（中优先）**
+3. **测试增强（中优先）**
    - service 层单测
    - middleware 单测
    - 过期 token 边界测试
+
+4. **数据层治理（中优先）**
+   - 将当前 AutoMigrate 升级为显式 migration 文件与版本管理
+   - 在 CI 中补齐 MySQL/Redis 仓储集成测试
 
 ---
 
@@ -506,6 +544,17 @@ go build ./...
 ```bash
 JWT_SECRET="your-strong-secret" go run ./cmd/api
 ```
+
+启用持久化模式（MySQL + Redis）：
+
+```bash
+JWT_SECRET="your-strong-secret" \
+MYSQL_DSN="user:pass@tcp(127.0.0.1:3306)/canteen?charset=utf8mb4&parseTime=True&loc=Local" \
+REDIS_ADDR="127.0.0.1:6379" \
+go run ./cmd/api
+```
+
+若仅设置 `JWT_SECRET`（未设置 `MYSQL_DSN/REDIS_ADDR`），服务会自动进入内存模式。
 
 默认监听：`localhost:8080`
 
@@ -533,6 +582,9 @@ JWT_SECRET="your-strong-secret" go run ./cmd/api
 - [x] 已实现错误码映射
 - [x] 已实现 access/refresh token 签发与解析
 - [x] 已实现 refresh token 一次性消费（轮换）
+- [x] 已完成 auth 仓储持久化升级（MySQL 用户仓储 + Redis refresh token 仓储）
+- [x] 已支持环境变量驱动的持久化/内存自动回退装配
+- [x] 已在 `api-spec.md` 补全 refresh 请求/响应示例
 - [x] 已提供模块级测试并通过
 - [x] 已补充模块级详细文档
 
@@ -555,36 +607,41 @@ JWT_SECRET="your-strong-secret" go run ./cmd/api
 4. 错误码语义已接入并与 API 规范对齐（核心：40001/40101/40901/50000）。
 5. JWT 签发与解析完成，access/refresh token 类型分离。
 6. refresh token 一次性消费（轮换）逻辑完成，防止重放。
-7. 路由级测试完成并覆盖核心成功/失败路径。
+7. Auth 持久化升级完成：
+   - `UserRepository` 支持 MySQL（GORM）实现并接入唯一键冲突语义。
+   - `RefreshTokenRepository` 支持 Redis（TTL + DEL consume）实现。
+8. 启动装配支持环境变量驱动：
+   - 有 `MYSQL_DSN + REDIS_ADDR` 时走持久化模式。
+   - 初始化失败或缺失时自动回退内存模式。
+9. `api-spec.md` 已补全 `POST /auth/refresh` 请求/响应示例，联调字段歧义已消除。
+10. 路由级测试完成并覆盖核心成功/失败路径。
 
 ### 10.2 下一步计划（Next Steps）
 
-1. **Auth 持久化升级**
-   - 将 `UserRepository` 从内存实现替换为 MySQL（GORM）。
-   - 将 `RefreshTokenRepository` 从内存实现替换为 Redis（带 TTL）。
-2. **完善中间件治理**
+1. **完善中间件治理**
    - 增加 TraceID 中间件。
    - 增加统一日志中间件（Zap）。
    - 将 panic/recover 统一转为规范错误返回。
-3. **补全接口契约**
-   - 在 `api-spec.md` 明确 `POST /auth/refresh` 请求/响应示例，避免联调歧义。
-4. **进入下一个业务模块**（按 P0）
+2. **进入下一个业务模块**（按 P0）
    - 推荐顺序：`stall list/detail` -> `rating` -> `comment` -> `like` -> `ranking`。
+3. **补充仓储层测试**
+   - 增加 MySQL/Redis 仓储集成测试（可通过 docker compose 或 testcontainers）。
 
 ### 10.3 待优化事项（Optimization Backlog）
 
 1. 密码策略增强（复杂度、黑名单词、历史密码策略可扩展）。
 2. 登录安全增强（IP + 账号维度限流、失败次数惩罚）。
 3. refresh token 增加设备维度管理（deviceId/sessionId）。
-4. service 层补充更细颗粒单测（当前以路由测试为主）。
+4. service 层补充更细颗粒单测（当前仍以路由测试为主）。
 5. 错误信息国际化或统一错误消息字典。
 6. 配置管理升级（Viper + `.env.dev/.env.test/.env.prod`）。
+7. 将当前 AutoMigrate 迁移策略升级为显式 migration 文件，便于生产可控发布。
 
 ### 10.4 风险与注意事项（Risks / Watchouts）
 
-1. 当前仓储是内存实现，重启会丢用户与 refresh token 状态，仅用于开发早期验证。
-2. 若不尽快补 `api-spec.md` 的 refresh 请求体细节，前端联调可能出现字段猜测不一致。
-3. 当前尚未接入审计日志与指标上报，不适合直接作为生产安全基线。
+1. 持久化模式依赖 MySQL/Redis 可用性；当前为“失败即回退内存”的可用性优先策略，生产建议引入启动失败策略与健康检查门禁。
+2. 当前尚未接入审计日志与指标上报，不适合直接作为生产安全基线。
+3. 仓储层尚未加入真实 MySQL/Redis 集成测试，需要在 CI 中补齐。
 
 ### 10.5 下一会话接手指引（Handoff Quick Start）
 
@@ -594,7 +651,7 @@ JWT_SECRET="your-strong-secret" go run ./cmd/api
    - `go test ./...`
    - `go vet ./...`
    - `go build ./...`
-3. 从 `Auth 持久化升级` 开始推进，并保持“开发完成即同步文档”的规则。
+3. 从 `stall list/detail` 模块开始推进，并保持“开发完成即同步文档”的规则。
 
 ### 10.6 模型使用规则（会话继承）
 
