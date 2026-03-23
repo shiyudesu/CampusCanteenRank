@@ -53,6 +53,8 @@ func NewEngineWithRepositories(
 	v1.POST("/stalls/:stallId/ratings", middleware.Auth(secret), stallHandler.UpsertUserRating)
 	v1.POST("/stalls/:stallId/comments", middleware.Auth(secret), commentHandler.CreateComment)
 	v1.GET("/stalls/:stallId/comments", commentHandler.ListTopLevelComments)
+	v1.POST("/comments/:commentId/like", middleware.Auth(secret), commentHandler.LikeComment)
+	v1.DELETE("/comments/:commentId/like", middleware.Auth(secret), commentHandler.UnlikeComment)
 
 	return r
 }

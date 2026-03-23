@@ -814,6 +814,172 @@ func TestCommentCursorPaginationSameSecondNoLoss(t *testing.T) {
 	}
 }
 
+func TestCommentLikeEndpoints(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
+		"email":    "liker@example.com",
+		"nickname": "Liker",
+		"password": "Pass@123456",
+	})
+	loginResp := requestJSON(t, engine, http.MethodPost, "/api/v1/auth/login", map[string]interface{}{
+		"email":    "liker@example.com",
+		"password": "Pass@123456",
+	})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("like login status = %d, want 200", loginResp.Code)
+	}
+	loginEnvelope := decodeEnvelope(t, loginResp.Body.Bytes())
+	loginData, ok := loginEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("like login data should be object")
+	}
+	accessToken, ok := loginData["accessToken"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("like access token should not be empty")
+	}
+
+	createResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+		"content":       "点赞接口测试评论",
+		"rootId":        0,
+		"parentId":      0,
+		"replyToUserId": 0,
+	}, accessToken)
+	if createResp.Code != http.StatusOK {
+		t.Fatalf("create comment for like status = %d, want 200", createResp.Code)
+	}
+	createdEnvelope := decodeEnvelope(t, createResp.Body.Bytes())
+	createdData, ok := createdEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("create comment for like data should be object")
+	}
+	createdComment, ok := createdData["comment"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("create comment for like comment should be object")
+	}
+	commentID := asInt(t, createdComment["id"])
+
+	likePath := "/api/v1/comments/" + strconv.Itoa(commentID) + "/like"
+
+	guestLikeResp := requestJSON(t, engine, http.MethodPost, likePath, map[string]interface{}{})
+	if guestLikeResp.Code != http.StatusUnauthorized {
+		t.Fatalf("guest like status = %d, want 401", guestLikeResp.Code)
+	}
+	guestLikeEnvelope := decodeEnvelope(t, guestLikeResp.Body.Bytes())
+	if got := asInt(t, guestLikeEnvelope["code"]); got != 40101 {
+		t.Fatalf("guest like code = %d, want 40101", got)
+	}
+	if _, ok := guestLikeEnvelope["data"].(map[string]interface{}); !ok {
+		t.Fatalf("guest like data should be object")
+	}
+
+	invalidLikeResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/comments/abc/like", map[string]interface{}{}, accessToken)
+	if invalidLikeResp.Code != http.StatusBadRequest {
+		t.Fatalf("invalid comment id like status = %d, want 400", invalidLikeResp.Code)
+	}
+	invalidLikeEnvelope := decodeEnvelope(t, invalidLikeResp.Body.Bytes())
+	if got := asInt(t, invalidLikeEnvelope["code"]); got != 40001 {
+		t.Fatalf("invalid comment id like code = %d, want 40001", got)
+	}
+
+	invalidZeroLikeResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/comments/0/like", map[string]interface{}{}, accessToken)
+	if invalidZeroLikeResp.Code != http.StatusBadRequest {
+		t.Fatalf("zero comment id like status = %d, want 400", invalidZeroLikeResp.Code)
+	}
+	invalidZeroLikeEnvelope := decodeEnvelope(t, invalidZeroLikeResp.Body.Bytes())
+	if got := asInt(t, invalidZeroLikeEnvelope["code"]); got != 40001 {
+		t.Fatalf("zero comment id like code = %d, want 40001", got)
+	}
+
+	invalidNegativeUnlikeResp := requestJSONWithAuth(t, engine, http.MethodDelete, "/api/v1/comments/-1/like", map[string]interface{}{}, accessToken)
+	if invalidNegativeUnlikeResp.Code != http.StatusBadRequest {
+		t.Fatalf("negative comment id unlike status = %d, want 400", invalidNegativeUnlikeResp.Code)
+	}
+	invalidNegativeUnlikeEnvelope := decodeEnvelope(t, invalidNegativeUnlikeResp.Body.Bytes())
+	if got := asInt(t, invalidNegativeUnlikeEnvelope["code"]); got != 40001 {
+		t.Fatalf("negative comment id unlike code = %d, want 40001", got)
+	}
+
+	likeResp := requestJSONWithAuth(t, engine, http.MethodPost, likePath, map[string]interface{}{}, accessToken)
+	if likeResp.Code != http.StatusOK {
+		t.Fatalf("like status = %d, want 200", likeResp.Code)
+	}
+	likeEnvelope := decodeEnvelope(t, likeResp.Body.Bytes())
+	if got := asInt(t, likeEnvelope["code"]); got != 0 {
+		t.Fatalf("like code = %d, want 0", got)
+	}
+	likeData, ok := likeEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("like data should be object")
+	}
+	if liked, ok := likeData["liked"].(bool); !ok || !liked {
+		t.Fatalf("like liked should be true")
+	}
+	if got := asInt(t, likeData["likeCount"]); got != 1 {
+		t.Fatalf("like count = %d, want 1", got)
+	}
+
+	idempotentLikeResp := requestJSONWithAuth(t, engine, http.MethodPost, likePath, map[string]interface{}{}, accessToken)
+	if idempotentLikeResp.Code != http.StatusOK {
+		t.Fatalf("idempotent like status = %d, want 200", idempotentLikeResp.Code)
+	}
+	idempotentLikeEnvelope := decodeEnvelope(t, idempotentLikeResp.Body.Bytes())
+	idempotentLikeData, ok := idempotentLikeEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("idempotent like data should be object")
+	}
+	if got := asInt(t, idempotentLikeData["likeCount"]); got != 1 {
+		t.Fatalf("idempotent like count = %d, want 1", got)
+	}
+
+	unlikeResp := requestJSONWithAuth(t, engine, http.MethodDelete, likePath, map[string]interface{}{}, accessToken)
+	if unlikeResp.Code != http.StatusOK {
+		t.Fatalf("unlike status = %d, want 200", unlikeResp.Code)
+	}
+	unlikeEnvelope := decodeEnvelope(t, unlikeResp.Body.Bytes())
+	unlikeData, ok := unlikeEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("unlike data should be object")
+	}
+	if liked, ok := unlikeData["liked"].(bool); !ok || liked {
+		t.Fatalf("unlike liked should be false")
+	}
+	if got := asInt(t, unlikeData["likeCount"]); got != 0 {
+		t.Fatalf("unlike count = %d, want 0", got)
+	}
+
+	idempotentUnlikeResp := requestJSONWithAuth(t, engine, http.MethodDelete, likePath, map[string]interface{}{}, accessToken)
+	if idempotentUnlikeResp.Code != http.StatusOK {
+		t.Fatalf("idempotent unlike status = %d, want 200", idempotentUnlikeResp.Code)
+	}
+	idempotentUnlikeEnvelope := decodeEnvelope(t, idempotentUnlikeResp.Body.Bytes())
+	idempotentUnlikeData, ok := idempotentUnlikeEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("idempotent unlike data should be object")
+	}
+	if got := asInt(t, idempotentUnlikeData["likeCount"]); got != 0 {
+		t.Fatalf("idempotent unlike count = %d, want 0", got)
+	}
+
+	notFoundResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/comments/999999/like", map[string]interface{}{}, accessToken)
+	if notFoundResp.Code != http.StatusNotFound {
+		t.Fatalf("like unknown comment status = %d, want 404", notFoundResp.Code)
+	}
+	notFoundEnvelope := decodeEnvelope(t, notFoundResp.Body.Bytes())
+	if got := asInt(t, notFoundEnvelope["code"]); got != 40401 {
+		t.Fatalf("like unknown comment code = %d, want 40401", got)
+	}
+
+	notFoundUnlikeResp := requestJSONWithAuth(t, engine, http.MethodDelete, "/api/v1/comments/999999/like", map[string]interface{}{}, accessToken)
+	if notFoundUnlikeResp.Code != http.StatusNotFound {
+		t.Fatalf("unlike unknown comment status = %d, want 404", notFoundUnlikeResp.Code)
+	}
+	notFoundUnlikeEnvelope := decodeEnvelope(t, notFoundUnlikeResp.Body.Bytes())
+	if got := asInt(t, notFoundUnlikeEnvelope["code"]); got != 40401 {
+		t.Fatalf("unlike unknown comment code = %d, want 40401", got)
+	}
+}
+
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body map[string]interface{}) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)

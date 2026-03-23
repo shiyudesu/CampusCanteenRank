@@ -35,3 +35,8 @@ type CommentListData struct {
 	NextCursor *string       `json:"nextCursor"`
 	HasMore    bool          `json:"hasMore"`
 }
+
+type ToggleLikeData struct {
+	Liked     bool  `json:"liked"`
+	LikeCount int64 `json:"likeCount"`
+}

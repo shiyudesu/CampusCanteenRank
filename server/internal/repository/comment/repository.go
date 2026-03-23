@@ -28,6 +28,8 @@ type CommentRepository interface {
 	Create(ctx context.Context, comment *model.Comment) error
 	GetByID(ctx context.Context, commentID int64) (*model.Comment, error)
 	IncrementRootReplyCount(ctx context.Context, rootID int64) error
+	Like(ctx context.Context, userID int64, commentID int64) (int64, error)
+	Unlike(ctx context.Context, userID int64, commentID int64) (int64, error)
 	ListTopLevelByStall(ctx context.Context, options CommentListOptions) ([]model.Comment, bool, error)
 }
 
@@ -35,6 +37,7 @@ type MemoryCommentRepository struct {
 	mu     sync.RWMutex
 	nextID int64
 	byID   map[int64]model.Comment
+	likes  map[int64]map[int64]struct{}
 }
 
 func NewMemoryCommentRepository() *MemoryCommentRepository {
@@ -83,6 +86,7 @@ func NewMemoryCommentRepository() *MemoryCommentRepository {
 	return &MemoryCommentRepository{
 		nextID: 9003,
 		byID:   seed,
+		likes:  make(map[int64]map[int64]struct{}),
 	}
 }
 
@@ -126,6 +130,49 @@ func (r *MemoryCommentRepository) IncrementRootReplyCount(_ context.Context, roo
 	item.ReplyCount++
 	r.byID[rootID] = item
 	return nil
+}
+
+func (r *MemoryCommentRepository) Like(_ context.Context, userID int64, commentID int64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item, ok := r.byID[commentID]
+	if !ok || item.Status != 1 {
+		return 0, ErrNotFound
+	}
+	if _, ok := r.likes[commentID]; !ok {
+		r.likes[commentID] = make(map[int64]struct{})
+	}
+	if _, exists := r.likes[commentID][userID]; exists {
+		return item.LikeCount, nil
+	}
+	r.likes[commentID][userID] = struct{}{}
+	item.LikeCount++
+	r.byID[commentID] = item
+	return item.LikeCount, nil
+}
+
+func (r *MemoryCommentRepository) Unlike(_ context.Context, userID int64, commentID int64) (int64, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	item, ok := r.byID[commentID]
+	if !ok || item.Status != 1 {
+		return 0, ErrNotFound
+	}
+	userSet, ok := r.likes[commentID]
+	if !ok {
+		return item.LikeCount, nil
+	}
+	if _, exists := userSet[userID]; !exists {
+		return item.LikeCount, nil
+	}
+	delete(userSet, userID)
+	if item.LikeCount > 0 {
+		item.LikeCount--
+	}
+	r.byID[commentID] = item
+	return item.LikeCount, nil
 }
 
 func (r *MemoryCommentRepository) ListTopLevelByStall(_ context.Context, options CommentListOptions) ([]model.Comment, bool, error) {

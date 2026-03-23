@@ -76,6 +76,58 @@ func (h *CommentHandler) ListTopLevelComments(c *gin.Context) {
 	response.OK(c, data)
 }
 
+func (h *CommentHandler) LikeComment(c *gin.Context) {
+	commentID, err := strconv.ParseInt(c.Param("commentId"), 10, 64)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		return
+	}
+	userID, ok := getUserID(c)
+	if !ok {
+		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
+		return
+	}
+
+	data, serviceErr := h.service.LikeComment(c.Request.Context(), userID, commentID)
+	if serviceErr != nil {
+		h.writeError(c, serviceErr)
+		return
+	}
+	response.OK(c, data)
+}
+
+func (h *CommentHandler) UnlikeComment(c *gin.Context) {
+	commentID, err := strconv.ParseInt(c.Param("commentId"), 10, 64)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		return
+	}
+	userID, ok := getUserID(c)
+	if !ok {
+		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
+		return
+	}
+
+	data, serviceErr := h.service.UnlikeComment(c.Request.Context(), userID, commentID)
+	if serviceErr != nil {
+		h.writeError(c, serviceErr)
+		return
+	}
+	response.OK(c, data)
+}
+
+func getUserID(c *gin.Context) (int64, bool) {
+	rawUserID, ok := c.Get("userId")
+	if !ok {
+		return 0, false
+	}
+	userID, ok := rawUserID.(int64)
+	if !ok || userID <= 0 {
+		return 0, false
+	}
+	return userID, true
+}
+
 func (h *CommentHandler) writeError(c *gin.Context, err error) {
 	var appErr *errpkg.AppError
 	if errors.As(err, &appErr) {

@@ -210,6 +210,34 @@ func (s *CommentService) ListTopLevelComments(
 	return &dto.CommentListData{Items: out, NextCursor: nextCursor, HasMore: hasMore}, nil
 }
 
+func (s *CommentService) LikeComment(ctx context.Context, userID int64, commentID int64) (*dto.ToggleLikeData, error) {
+	if userID <= 0 || commentID <= 0 {
+		return nil, errpkg.New(errpkg.CodeBadRequest, "invalid params", nil)
+	}
+	likeCount, err := s.comments.Like(ctx, userID, commentID)
+	if err != nil {
+		if errors.Is(err, commentrepo.ErrNotFound) {
+			return nil, errpkg.New(errpkg.CodeNotFound, "comment not found", nil)
+		}
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	return &dto.ToggleLikeData{Liked: true, LikeCount: likeCount}, nil
+}
+
+func (s *CommentService) UnlikeComment(ctx context.Context, userID int64, commentID int64) (*dto.ToggleLikeData, error) {
+	if userID <= 0 || commentID <= 0 {
+		return nil, errpkg.New(errpkg.CodeBadRequest, "invalid params", nil)
+	}
+	likeCount, err := s.comments.Unlike(ctx, userID, commentID)
+	if err != nil {
+		if errors.Is(err, commentrepo.ErrNotFound) {
+			return nil, errpkg.New(errpkg.CodeNotFound, "comment not found", nil)
+		}
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	return &dto.ToggleLikeData{Liked: false, LikeCount: likeCount}, nil
+}
+
 func toCommentItem(item model.Comment, authorID int64, nickname string) dto.CommentItem {
 	return dto.CommentItem{
 		ID:            item.ID,
