@@ -30,7 +30,9 @@ type CommentRepository interface {
 	IncrementRootReplyCount(ctx context.Context, rootID int64) error
 	Like(ctx context.Context, userID int64, commentID int64) (int64, error)
 	Unlike(ctx context.Context, userID int64, commentID int64) (int64, error)
+	HasLiked(ctx context.Context, userID int64, commentID int64) (bool, error)
 	ListTopLevelByStall(ctx context.Context, options CommentListOptions) ([]model.Comment, bool, error)
+	ListRepliesByRoot(ctx context.Context, rootCommentID int64, limit int, cursor *CommentCursor) ([]model.Comment, bool, error)
 }
 
 type MemoryCommentRepository struct {
@@ -175,6 +177,22 @@ func (r *MemoryCommentRepository) Unlike(_ context.Context, userID int64, commen
 	return item.LikeCount, nil
 }
 
+func (r *MemoryCommentRepository) HasLiked(_ context.Context, userID int64, commentID int64) (bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	item, ok := r.byID[commentID]
+	if !ok || item.Status != 1 {
+		return false, ErrNotFound
+	}
+	userSet, ok := r.likes[commentID]
+	if !ok {
+		return false, nil
+	}
+	_, exists := userSet[userID]
+	return exists, nil
+}
+
 func (r *MemoryCommentRepository) ListTopLevelByStall(_ context.Context, options CommentListOptions) ([]model.Comment, bool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
@@ -214,6 +232,58 @@ func (r *MemoryCommentRepository) ListTopLevelByStall(_ context.Context, options
 	}
 
 	limit := options.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	hasMore := len(filtered) > limit
+	if hasMore {
+		filtered = filtered[:limit]
+	}
+	out := make([]model.Comment, len(filtered))
+	copy(out, filtered)
+	return out, hasMore, nil
+}
+
+func (r *MemoryCommentRepository) ListRepliesByRoot(
+	_ context.Context,
+	rootCommentID int64,
+	limit int,
+	cursor *CommentCursor,
+) ([]model.Comment, bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	list := make([]model.Comment, 0, len(r.byID))
+	for _, item := range r.byID {
+		if item.Status != 1 {
+			continue
+		}
+		if item.RootID != rootCommentID || item.ParentID == 0 {
+			continue
+		}
+		list = append(list, item)
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].CreatedAt.Equal(list[j].CreatedAt) {
+			return list[i].ID > list[j].ID
+		}
+		return list[i].CreatedAt.After(list[j].CreatedAt)
+	})
+
+	filtered := make([]model.Comment, 0, len(list))
+	for _, item := range list {
+		if cursor != nil {
+			if item.CreatedAt.After(cursor.CreatedAt) {
+				continue
+			}
+			if item.CreatedAt.Equal(cursor.CreatedAt) && item.ID >= cursor.ID {
+				continue
+			}
+		}
+		filtered = append(filtered, item)
+	}
+
 	if limit <= 0 {
 		limit = 20
 	}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	model "CampusCanteenRank/server/internal/model/comment"
 )
 
 func TestMemoryCommentRepositoryLikeUnlikeIdempotent(t *testing.T) {
@@ -64,4 +66,128 @@ func TestMemoryCommentRepositoryLikeUnlikeNotFound(t *testing.T) {
 	if !errors.Is(err, ErrNotFound) {
 		t.Fatalf("unlike unknown comment error = %v, want ErrNotFound", err)
 	}
+}
+
+func TestMemoryCommentRepositoryHasLiked(t *testing.T) {
+	repo := NewMemoryCommentRepository()
+	ctx := context.Background()
+
+	liked, err := repo.HasLiked(ctx, 1001, 9001)
+	if err != nil {
+		t.Fatalf("initial hasLiked failed: %v", err)
+	}
+	if liked {
+		t.Fatalf("initial liked should be false")
+	}
+
+	if _, err := repo.Like(ctx, 1001, 9001); err != nil {
+		t.Fatalf("like failed: %v", err)
+	}
+	liked, err = repo.HasLiked(ctx, 1001, 9001)
+	if err != nil {
+		t.Fatalf("hasLiked after like failed: %v", err)
+	}
+	if !liked {
+		t.Fatalf("liked should be true after like")
+	}
+
+	if _, err := repo.Unlike(ctx, 1001, 9001); err != nil {
+		t.Fatalf("unlike failed: %v", err)
+	}
+	liked, err = repo.HasLiked(ctx, 1001, 9001)
+	if err != nil {
+		t.Fatalf("hasLiked after unlike failed: %v", err)
+	}
+	if liked {
+		t.Fatalf("liked should be false after unlike")
+	}
+
+	if _, err := repo.HasLiked(ctx, 1001, 999999); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("hasLiked unknown comment error = %v, want ErrNotFound", err)
+	}
+}
+
+func TestMemoryCommentRepositoryListRepliesByRootPagination(t *testing.T) {
+	repo := NewMemoryCommentRepository()
+	ctx := context.Background()
+
+	base := &model.Comment{
+		StallID:       101,
+		UserID:        1001,
+		RootID:        9001,
+		ParentID:      9001,
+		ReplyToUserID: 1001,
+		Content:       "reply base",
+		LikeCount:     0,
+		ReplyCount:    0,
+		Status:        1,
+	}
+	if err := repo.Create(ctx, base); err != nil {
+		t.Fatalf("create base reply failed: %v", err)
+	}
+
+	second := &model.Comment{
+		StallID:       101,
+		UserID:        1002,
+		RootID:        9001,
+		ParentID:      9001,
+		ReplyToUserID: 1001,
+		Content:       "reply second",
+		LikeCount:     0,
+		ReplyCount:    0,
+		Status:        1,
+	}
+	if err := repo.Create(ctx, second); err != nil {
+		t.Fatalf("create second reply failed: %v", err)
+	}
+
+	otherRoot := &model.Comment{
+		StallID:       101,
+		UserID:        1003,
+		RootID:        9002,
+		ParentID:      9002,
+		ReplyToUserID: 1002,
+		Content:       "reply other root",
+		LikeCount:     0,
+		ReplyCount:    0,
+		Status:        1,
+	}
+	if err := repo.Create(ctx, otherRoot); err != nil {
+		t.Fatalf("create other-root reply failed: %v", err)
+	}
+
+	firstPage, hasMore, err := repo.ListRepliesByRoot(ctx, 9001, 1, nil)
+	if err != nil {
+		t.Fatalf("list first page failed: %v", err)
+	}
+	if len(firstPage) != 1 {
+		t.Fatalf("first page len = %d, want 1", len(firstPage))
+	}
+	if !hasMore {
+		t.Fatalf("first page should have more")
+	}
+	if firstPage[0].RootID != 9001 {
+		t.Fatalf("first page root id = %d, want 9001", firstPage[0].RootID)
+	}
+
+	c := &CommentCursor{CreatedAt: firstPage[0].CreatedAt, ID: firstPage[0].ID}
+	secondPage, secondHasMore, err := repo.ListRepliesByRoot(ctx, 9001, 10, c)
+	if err != nil {
+		t.Fatalf("list second page failed: %v", err)
+	}
+	if secondHasMore {
+		t.Fatalf("second page should not have more")
+	}
+	if len(secondPage) == 0 {
+		t.Fatalf("second page should contain remaining replies")
+	}
+	for _, item := range secondPage {
+		if item.RootID != 9001 {
+			t.Fatalf("unexpected root id %d in second page", item.RootID)
+		}
+		if item.ID == firstPage[0].ID {
+			t.Fatalf("pagination duplicated reply id=%d", item.ID)
+		}
+	}
+
 }

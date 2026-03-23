@@ -980,6 +980,211 @@ func TestCommentLikeEndpoints(t *testing.T) {
 	}
 }
 
+func TestCommentListRepliesEndpoint(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
+		"email":    "replier@example.com",
+		"nickname": "Replier",
+		"password": "Pass@123456",
+	})
+	loginResp := requestJSON(t, engine, http.MethodPost, "/api/v1/auth/login", map[string]interface{}{
+		"email":    "replier@example.com",
+		"password": "Pass@123456",
+	})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("reply login status = %d, want 200", loginResp.Code)
+	}
+	loginEnvelope := decodeEnvelope(t, loginResp.Body.Bytes())
+	loginData, ok := loginEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("reply login data should be object")
+	}
+	accessToken, ok := loginData["accessToken"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("reply access token should not be empty")
+	}
+
+	createRoot := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+		"content":       "root for replies",
+		"rootId":        0,
+		"parentId":      0,
+		"replyToUserId": 0,
+	}, accessToken)
+	if createRoot.Code != http.StatusOK {
+		t.Fatalf("create root comment status = %d, want 200", createRoot.Code)
+	}
+	rootEnvelope := decodeEnvelope(t, createRoot.Body.Bytes())
+	rootData, ok := rootEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("root data should be object")
+	}
+	rootComment, ok := rootData["comment"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("root comment should be object")
+	}
+	rootID := asInt(t, rootComment["id"])
+	author, ok := rootComment["author"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("root author should be object")
+	}
+	authorID := asInt(t, author["id"])
+
+	for i := 0; i < 3; i++ {
+		replyResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/comments", map[string]interface{}{
+			"content":       "reply #" + strconv.Itoa(i),
+			"rootId":        rootID,
+			"parentId":      rootID,
+			"replyToUserId": authorID,
+		}, accessToken)
+		if replyResp.Code != http.StatusOK {
+			t.Fatalf("create reply[%d] status = %d, want 200", i, replyResp.Code)
+		}
+	}
+
+	firstResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/comments/"+strconv.Itoa(rootID)+"/replies?limit=2")
+	if firstResp.Code != http.StatusOK {
+		t.Fatalf("list replies first page status = %d, want 200", firstResp.Code)
+	}
+	firstEnvelope := decodeEnvelope(t, firstResp.Body.Bytes())
+	if got := asInt(t, firstEnvelope["code"]); got != 0 {
+		t.Fatalf("list replies first page code = %d, want 0", got)
+	}
+	firstData, ok := firstEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("list replies first data should be object")
+	}
+	firstItems, ok := firstData["items"].([]interface{})
+	if !ok || len(firstItems) != 2 {
+		t.Fatalf("first replies page size = %d, want 2", len(firstItems))
+	}
+	if hasMore, ok := firstData["hasMore"].(bool); !ok || !hasMore {
+		t.Fatalf("first replies page hasMore should be true")
+	}
+	nextCursor, ok := firstData["nextCursor"].(string)
+	if !ok || nextCursor == "" {
+		t.Fatalf("first replies page nextCursor should be non-empty")
+	}
+	firstReplyItem, ok := firstItems[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("first reply item should be object")
+	}
+	if got := asInt(t, firstReplyItem["rootId"]); got != rootID {
+		t.Fatalf("first reply rootId = %d, want %d", got, rootID)
+	}
+	replyToUser, ok := firstReplyItem["replyToUser"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("replyToUser should be object")
+	}
+	if got := asInt(t, replyToUser["id"]); got != authorID {
+		t.Fatalf("replyToUser id = %d, want %d", got, authorID)
+	}
+	firstReplyID := asInt(t, firstReplyItem["id"])
+	likeResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/comments/"+strconv.Itoa(firstReplyID)+"/like", map[string]interface{}{}, accessToken)
+	if likeResp.Code != http.StatusOK {
+		t.Fatalf("like reply status = %d, want 200", likeResp.Code)
+	}
+
+	authedAfterLike := requestWithAuth(t, engine, http.MethodGet, "/api/v1/comments/"+strconv.Itoa(rootID)+"/replies?limit=2", accessToken)
+	if authedAfterLike.Code != http.StatusOK {
+		t.Fatalf("authed replies after like status = %d, want 200", authedAfterLike.Code)
+	}
+	authedAfterLikeEnvelope := decodeEnvelope(t, authedAfterLike.Body.Bytes())
+	authedAfterLikeData, ok := authedAfterLikeEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("authed replies after like data should be object")
+	}
+	authedAfterLikeItems, ok := authedAfterLikeData["items"].([]interface{})
+	if !ok || len(authedAfterLikeItems) == 0 {
+		t.Fatalf("authed replies after like items should not be empty")
+	}
+	likedFound := false
+	for _, raw := range authedAfterLikeItems {
+		item, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("authed replies item should be object")
+		}
+		if asInt(t, item["id"]) == firstReplyID {
+			if likedByMe, ok := item["likedByMe"].(bool); !ok || !likedByMe {
+				t.Fatalf("liked reply likedByMe should be true")
+			}
+			likedFound = true
+		}
+	}
+	if !likedFound {
+		t.Fatalf("liked reply should appear in first page")
+	}
+
+	guestAfterLike := requestNoBody(t, engine, http.MethodGet, "/api/v1/comments/"+strconv.Itoa(rootID)+"/replies?limit=2")
+	if guestAfterLike.Code != http.StatusOK {
+		t.Fatalf("guest replies after like status = %d, want 200", guestAfterLike.Code)
+	}
+	guestAfterLikeEnvelope := decodeEnvelope(t, guestAfterLike.Body.Bytes())
+	guestAfterLikeData, ok := guestAfterLikeEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("guest replies after like data should be object")
+	}
+	guestAfterLikeItems, ok := guestAfterLikeData["items"].([]interface{})
+	if !ok || len(guestAfterLikeItems) == 0 {
+		t.Fatalf("guest replies after like items should not be empty")
+	}
+	for _, raw := range guestAfterLikeItems {
+		item, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("guest replies item should be object")
+		}
+		if asInt(t, item["id"]) == firstReplyID {
+			if likedByMe, ok := item["likedByMe"].(bool); !ok || likedByMe {
+				t.Fatalf("guest likedByMe should be false")
+			}
+		}
+	}
+
+	secondResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/comments/"+strconv.Itoa(rootID)+"/replies?limit=2&cursor="+url.QueryEscape(nextCursor))
+	if secondResp.Code != http.StatusOK {
+		t.Fatalf("list replies second page status = %d, want 200", secondResp.Code)
+	}
+	secondEnvelope := decodeEnvelope(t, secondResp.Body.Bytes())
+	secondData, ok := secondEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("list replies second data should be object")
+	}
+	secondItems, ok := secondData["items"].([]interface{})
+	if !ok || len(secondItems) == 0 {
+		t.Fatalf("second replies page should contain items")
+	}
+	if hasMore, ok := secondData["hasMore"].(bool); !ok || hasMore {
+		t.Fatalf("second replies page hasMore should be false")
+	}
+
+	badCursorResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/comments/"+strconv.Itoa(rootID)+"/replies?cursor=bad-cursor")
+	if badCursorResp.Code != http.StatusBadRequest {
+		t.Fatalf("bad replies cursor status = %d, want 400", badCursorResp.Code)
+	}
+	badCursorEnvelope := decodeEnvelope(t, badCursorResp.Body.Bytes())
+	if got := asInt(t, badCursorEnvelope["code"]); got != 40001 {
+		t.Fatalf("bad replies cursor code = %d, want 40001", got)
+	}
+
+	notFoundResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/comments/999999/replies")
+	if notFoundResp.Code != http.StatusNotFound {
+		t.Fatalf("missing root replies status = %d, want 404", notFoundResp.Code)
+	}
+	notFoundEnvelope := decodeEnvelope(t, notFoundResp.Body.Bytes())
+	if got := asInt(t, notFoundEnvelope["code"]); got != 40401 {
+		t.Fatalf("missing root replies code = %d, want 40401", got)
+	}
+
+	invalidIDResp := requestNoBody(t, engine, http.MethodGet, "/api/v1/comments/abc/replies")
+	if invalidIDResp.Code != http.StatusBadRequest {
+		t.Fatalf("invalid root id status = %d, want 400", invalidIDResp.Code)
+	}
+	invalidIDEnvelope := decodeEnvelope(t, invalidIDResp.Body.Bytes())
+	if got := asInt(t, invalidIDEnvelope["code"]); got != 40001 {
+		t.Fatalf("invalid root id code = %d, want 40001", got)
+	}
+}
+
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body map[string]interface{}) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)

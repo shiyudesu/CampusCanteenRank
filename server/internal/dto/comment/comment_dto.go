@@ -13,17 +13,18 @@ type CommentAuthorVO struct {
 }
 
 type CommentItem struct {
-	ID            int64           `json:"id"`
-	StallID       int64           `json:"stallId"`
-	RootID        int64           `json:"rootId"`
-	ParentID      int64           `json:"parentId"`
-	ReplyToUserID int64           `json:"replyToUserId"`
-	Content       string          `json:"content"`
-	LikeCount     int64           `json:"likeCount"`
-	ReplyCount    int64           `json:"replyCount"`
-	CreatedAt     string          `json:"createdAt"`
-	Author        CommentAuthorVO `json:"author"`
-	LikedByMe     bool            `json:"likedByMe"`
+	ID            int64            `json:"id"`
+	StallID       int64            `json:"stallId"`
+	RootID        int64            `json:"rootId"`
+	ParentID      int64            `json:"parentId"`
+	ReplyToUserID int64            `json:"replyToUserId"`
+	Content       string           `json:"content"`
+	LikeCount     int64            `json:"likeCount"`
+	ReplyCount    int64            `json:"replyCount"`
+	CreatedAt     string           `json:"createdAt"`
+	Author        CommentAuthorVO  `json:"author"`
+	ReplyToUser   *CommentAuthorVO `json:"replyToUser"`
+	LikedByMe     bool             `json:"likedByMe"`
 }
 
 type CreateCommentData struct {

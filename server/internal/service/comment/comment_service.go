@@ -123,12 +123,13 @@ func (s *CommentService) CreateComment(ctx context.Context, userID int64, stallI
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", loadErr)
 	}
 
-	item := toCommentItem(*createdComment, author.ID, author.Nickname)
+	item := toCommentItem(*createdComment, author.ID, author.Nickname, false)
 	return &dto.CreateCommentData{Comment: item}, nil
 }
 
 func (s *CommentService) ListTopLevelComments(
 	ctx context.Context,
+	viewerUserID int64,
 	stallID int64,
 	limit int,
 	cursorText string,
@@ -194,7 +195,11 @@ func (s *CommentService) ListTopLevelComments(
 
 	out := make([]dto.CommentItem, 0, len(items))
 	for _, item := range items {
-		out = append(out, toCommentItem(item, item.UserID, nicknames[item.UserID]))
+		likedByMe, likedErr := s.resolveLikedByMe(ctx, viewerUserID, item.ID)
+		if likedErr != nil {
+			return nil, likedErr
+		}
+		out = append(out, toCommentItem(item, item.UserID, nicknames[item.UserID], likedByMe))
 	}
 
 	var nextCursor *string
@@ -208,6 +213,119 @@ func (s *CommentService) ListTopLevelComments(
 	}
 
 	return &dto.CommentListData{Items: out, NextCursor: nextCursor, HasMore: hasMore}, nil
+}
+
+func (s *CommentService) ListReplies(
+	ctx context.Context,
+	viewerUserID int64,
+	rootCommentID int64,
+	limit int,
+	cursorText string,
+) (*dto.CommentListData, error) {
+	if rootCommentID <= 0 {
+		return nil, errpkg.New(errpkg.CodeBadRequest, "invalid params", nil)
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	rootComment, rootErr := s.comments.GetByID(ctx, rootCommentID)
+	if rootErr != nil {
+		if errors.Is(rootErr, commentrepo.ErrNotFound) {
+			return nil, errpkg.New(errpkg.CodeNotFound, "comment not found", nil)
+		}
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", rootErr)
+	}
+	if rootComment.RootID != 0 || rootComment.ParentID != 0 {
+		return nil, errpkg.New(errpkg.CodeBadRequest, "invalid params", nil)
+	}
+
+	decodedCursor, decodeErr := cursor.Decode(cursorText)
+	if decodeErr != nil {
+		return nil, errpkg.New(errpkg.CodeBadRequest, "invalid params", decodeErr)
+	}
+	var token *commentrepo.CommentCursor
+	if decodedCursor != nil {
+		token = &commentrepo.CommentCursor{CreatedAt: decodedCursor.CreatedAt, ID: decodedCursor.ID}
+	}
+
+	items, hasMore, listErr := s.comments.ListRepliesByRoot(ctx, rootCommentID, limit, token)
+	if listErr != nil {
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", listErr)
+	}
+
+	nicknames := make(map[int64]string, len(items)+1)
+	for _, item := range items {
+		if _, exists := nicknames[item.UserID]; !exists {
+			user, userErr := s.users.GetByID(ctx, item.UserID)
+			if userErr != nil {
+				if errors.Is(userErr, authrepo.ErrNotFound) {
+					nicknames[item.UserID] = "Unknown User"
+				} else {
+					return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
+				}
+			} else {
+				nicknames[item.UserID] = user.Nickname
+			}
+		}
+		if item.ReplyToUserID > 0 {
+			if _, exists := nicknames[item.ReplyToUserID]; !exists {
+				user, userErr := s.users.GetByID(ctx, item.ReplyToUserID)
+				if userErr != nil {
+					if errors.Is(userErr, authrepo.ErrNotFound) {
+						nicknames[item.ReplyToUserID] = "Unknown User"
+					} else {
+						return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
+					}
+				} else {
+					nicknames[item.ReplyToUserID] = user.Nickname
+				}
+			}
+		}
+	}
+
+	out := make([]dto.CommentItem, 0, len(items))
+	for _, item := range items {
+		likedByMe, likedErr := s.resolveLikedByMe(ctx, viewerUserID, item.ID)
+		if likedErr != nil {
+			return nil, likedErr
+		}
+		commentItem := toCommentItem(item, item.UserID, nicknames[item.UserID], likedByMe)
+		if item.ReplyToUserID > 0 {
+			replyToUser := dto.CommentAuthorVO{ID: item.ReplyToUserID, Nickname: nicknames[item.ReplyToUserID]}
+			commentItem.ReplyToUser = &replyToUser
+		}
+		out = append(out, commentItem)
+	}
+
+	var nextCursor *string
+	if len(items) > 0 && hasMore {
+		last := items[len(items)-1]
+		encoded, encErr := cursor.Encode(cursor.Token{CreatedAt: last.CreatedAt, ID: last.ID})
+		if encErr != nil {
+			return nil, errpkg.New(errpkg.CodeInternal, "internal error", encErr)
+		}
+		nextCursor = &encoded
+	}
+
+	return &dto.CommentListData{Items: out, NextCursor: nextCursor, HasMore: hasMore}, nil
+}
+
+func (s *CommentService) resolveLikedByMe(ctx context.Context, viewerUserID int64, commentID int64) (bool, error) {
+	if viewerUserID <= 0 {
+		return false, nil
+	}
+	likedByMe, err := s.comments.HasLiked(ctx, viewerUserID, commentID)
+	if err != nil {
+		if errors.Is(err, commentrepo.ErrNotFound) {
+			return false, errpkg.New(errpkg.CodeNotFound, "comment not found", nil)
+		}
+		return false, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	return likedByMe, nil
 }
 
 func (s *CommentService) LikeComment(ctx context.Context, userID int64, commentID int64) (*dto.ToggleLikeData, error) {
@@ -238,7 +356,7 @@ func (s *CommentService) UnlikeComment(ctx context.Context, userID int64, commen
 	return &dto.ToggleLikeData{Liked: false, LikeCount: likeCount}, nil
 }
 
-func toCommentItem(item model.Comment, authorID int64, nickname string) dto.CommentItem {
+func toCommentItem(item model.Comment, authorID int64, nickname string, likedByMe bool) dto.CommentItem {
 	return dto.CommentItem{
 		ID:            item.ID,
 		StallID:       item.StallID,
@@ -250,6 +368,6 @@ func toCommentItem(item model.Comment, authorID int64, nickname string) dto.Comm
 		ReplyCount:    item.ReplyCount,
 		CreatedAt:     item.CreatedAt.UTC().Format(time.RFC3339),
 		Author:        dto.CommentAuthorVO{ID: authorID, Nickname: nickname},
-		LikedByMe:     false,
+		LikedByMe:     likedByMe,
 	}
 }

@@ -68,7 +68,42 @@ func (h *CommentHandler) ListTopLevelComments(c *gin.Context) {
 		limit = parsed
 	}
 
-	data, serviceErr := h.service.ListTopLevelComments(c.Request.Context(), stallID, limit, c.Query("cursor"), c.Query("sort"))
+	viewerUserID := int64(0)
+	if userID, ok := getUserID(c); ok {
+		viewerUserID = userID
+	}
+
+	data, serviceErr := h.service.ListTopLevelComments(c.Request.Context(), viewerUserID, stallID, limit, c.Query("cursor"), c.Query("sort"))
+	if serviceErr != nil {
+		h.writeError(c, serviceErr)
+		return
+	}
+	response.OK(c, data)
+}
+
+func (h *CommentHandler) ListReplies(c *gin.Context) {
+	rootCommentID, err := strconv.ParseInt(c.Param("rootCommentId"), 10, 64)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		return
+	}
+
+	limit := 0
+	if rawLimit := c.Query("limit"); rawLimit != "" {
+		parsed, parseErr := strconv.Atoi(rawLimit)
+		if parseErr != nil {
+			response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+			return
+		}
+		limit = parsed
+	}
+
+	viewerUserID := int64(0)
+	if userID, ok := getUserID(c); ok {
+		viewerUserID = userID
+	}
+
+	data, serviceErr := h.service.ListReplies(c.Request.Context(), viewerUserID, rootCommentID, limit, c.Query("cursor"))
 	if serviceErr != nil {
 		h.writeError(c, serviceErr)
 		return

@@ -99,12 +99,12 @@
 6. 评论模块路由级测试已覆盖主要成功/失败链路。
 7. 点赞模块已完成：支持 `POST/DELETE /api/v1/comments/{commentId}/like`，返回 `liked + likeCount`。
 8. 点赞接口幂等已落地：重复点赞/取消点赞不会报错且计数不重复增减。
+9. 回复列表接口已完成：支持 `GET /api/v1/comments/{rootCommentId}/replies`，返回 `items/nextCursor/hasMore`。
 
 ### 4.2 下一步计划（Next Steps）
 
-1. 进入回复列表接口：`GET /comments/{rootCommentId}/replies`（游标分页）。
-2. 将评论与点赞计数逻辑迁移到 MySQL 持久化仓储，并补充仓储层测试。
-3. 在评论列表中接入 `likedByMe` 的真实态计算，打通“列表 + 点赞态”一致性。
+1. 将评论与点赞计数逻辑迁移到 MySQL 持久化仓储，并补充仓储层测试。
+2. 在评论列表中接入 `likedByMe` 的真实态计算，打通“列表 + 点赞态”一致性。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
@@ -116,4 +116,4 @@
 
 1. 当前评论仓储为内存实现，不具备持久化与生产并发能力。
 2. author 信息依赖用户仓储查询；历史脏数据场景下会降级为占位昵称。
-3. 当前已完成点赞接口，但回复列表与持久化仓储仍待落地。
+3. 当前已完成点赞与回复列表接口，主要风险集中在内存仓储未持久化。
