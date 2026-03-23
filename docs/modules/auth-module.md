@@ -622,15 +622,16 @@ go run ./cmd/api
    - 新增统一请求日志中间件（输出 trace_id、method、path、status、latency、client_ip）。
    - 新增统一 Recover 中间件（panic 统一返回 `50000/internal error` 的标准 envelope）。
 12. Router 已接入上述中间件链路，并补充中间件行为测试（TraceID 生成/透传、Recover 统一返回）。
+13. 中间件治理第二阶段已完成（Zap + 脱敏）：
+   - 请求日志升级为 Zap 结构化日志，字段包含 `trace_id/request_id/user_id/method/path/status/latency/client_ip`。
+   - 增加日志配置能力：支持 `LOG_LEVEL` 调整日志级别。
+   - 增加敏感字段脱敏：支持 `LOG_SENSITIVE_FIELDS` 自定义脱敏字段，默认覆盖 `authorization/cookie/password/token/refreshToken`。
 
 ### 10.2 下一步计划（Next Steps）
 
-1. **中间件治理第二阶段（质量深化）**
-   - 将当前请求日志实现升级为 `Zap` 结构化日志（字段对齐 trace_id/request_id/user_id）。
-   - 增加可配置日志级别与敏感字段脱敏策略。
-2. **进入下一个业务模块**（按 P0）
+1. **进入下一个业务模块**（按 P0）
    - 推荐顺序：`stall list/detail` -> `rating` -> `comment` -> `like` -> `ranking`。
-3. **补充仓储层测试**
+2. **补充仓储层测试**
    - 增加 MySQL/Redis 仓储集成测试（可通过 docker compose 或 testcontainers）。
 
 ### 10.3 待优化事项（Optimization Backlog）
