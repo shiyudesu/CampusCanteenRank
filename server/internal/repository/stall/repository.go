@@ -34,6 +34,7 @@ type StallRepository interface {
 	ListStalls(ctx context.Context, options StallListOptions) ([]model.Stall, bool, error)
 	GetStallByID(ctx context.Context, stallID int64) (*model.Stall, error)
 	GetUserRating(ctx context.Context, userID int64, stallID int64) (*int, error)
+	UpsertUserRating(ctx context.Context, userID int64, stallID int64, score int) (*model.Stall, error)
 }
 
 type MemoryStallRepository struct {
@@ -61,12 +62,8 @@ func NewMemoryStallRepository() *MemoryStallRepository {
 			{ID: 1, Name: "一食堂", Campus: "主校区", Status: 1},
 			{ID: 2, Name: "二食堂", Campus: "东校区", Status: 1},
 		},
-		stalls: stalls,
-		ratings: map[int64]map[int64]int{
-			1001: {
-				101: 5,
-			},
-		},
+		stalls:  stalls,
+		ratings: map[int64]map[int64]int{},
 	}
 }
 
@@ -154,4 +151,42 @@ func (r *MemoryStallRepository) GetUserRating(_ context.Context, userID int64, s
 	}
 	result := rating
 	return &result, nil
+}
+
+func (r *MemoryStallRepository) UpsertUserRating(_ context.Context, userID int64, stallID int64, score int) (*model.Stall, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	stallIndex := -1
+	for i, s := range r.stalls {
+		if s.ID == stallID && s.Status == 1 {
+			stallIndex = i
+			break
+		}
+	}
+	if stallIndex < 0 {
+		return nil, ErrNotFound
+	}
+
+	if _, ok := r.ratings[userID]; !ok {
+		r.ratings[userID] = make(map[int64]int)
+	}
+	previousScore, hadPrevious := r.ratings[userID][stallID]
+	r.ratings[userID][stallID] = score
+
+	target := &r.stalls[stallIndex]
+	if hadPrevious {
+		if target.RatingCount <= 0 {
+			return nil, errors.New("invalid aggregate state")
+		}
+		total := target.AvgRating*float64(target.RatingCount) - float64(previousScore) + float64(score)
+		target.AvgRating = total / float64(target.RatingCount)
+	} else {
+		total := target.AvgRating*float64(target.RatingCount) + float64(score)
+		target.RatingCount++
+		target.AvgRating = total / float64(target.RatingCount)
+	}
+
+	clone := *target
+	return &clone, nil
 }

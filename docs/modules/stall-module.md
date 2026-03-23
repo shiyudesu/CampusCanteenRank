@@ -1,17 +1,19 @@
-# Stall 模块实现说明（阶段一）
+# Stall 模块实现说明（阶段二）
 
 ## 1. 本次实现范围
 
-本次在 `auth` 模块之后，完成了后端下一部分 `stall` 领域的第一阶段闭环，新增并接入以下接口：
+本次在 `auth` 模块之后，完成了后端下一部分 `stall` 领域的第二阶段闭环，新增并接入以下接口：
 
 1. `GET /api/v1/canteens`
 2. `GET /api/v1/stalls?limit=&cursor=&canteenId=&foodTypeId=&sort=score_desc`
 3. `GET /api/v1/stalls/{stallId}`
+4. `POST /api/v1/stalls/{stallId}/ratings`
 
 并补充了：
 
 - 独立的 `stall` 分层结构（model/dto/repository/service/controller）
 - 游标编码解码基础包 `internal/pkg/cursor`
+- 评分写接口（单用户评分 upsert）与窗口聚合评分字段同步更新
 - 路由集成测试，覆盖分页、参数错误、详情查询和 not found
 
 ---
@@ -39,6 +41,16 @@
 - 新增 `server/internal/middleware/optional_auth.go`
 - `GET /stalls/{stallId}` 支持“未登录返回基础详情；登录后附带 myRating（若存在）”
 
+### 2.4 评分写接口 upsert 行为
+
+- 在 `StallRepository` 增加 `UpsertUserRating`，内存仓储实现用户评分的新增/更新
+- 新增路由：`POST /api/v1/stalls/:stallId/ratings`（需鉴权）
+- 写入规则：同一用户对同一窗口重复提交视为更新，不重复增加 `ratingCount`
+- 聚合规则：
+  - 新评分：`ratingCount +1`，并重算 `avgRating`
+  - 更新评分：`ratingCount` 不变，按“旧分替换新分”重算 `avgRating`
+- 详情字段：`myRating` 在详情接口中保持稳定返回；未登录或未评分时返回 `null`
+
 ---
 
 ## 3. 测试与验证结果
@@ -53,6 +65,7 @@
 
 - `server/internal/pkg/cursor/cursor_test.go`
 - `server/internal/router/router_test.go`（新增 stall/canteen 相关用例）
+- `server/internal/router/router_test.go`（新增评分 upsert 成功链路与错误路径用例）
 
 ---
 
@@ -70,12 +83,13 @@
 3. `stall` 详情接口已支持 `40401` 语义。
 4. 详情接口已支持可选鉴权上下文，并在登录场景返回 `myRating`。
 5. 路由测试已覆盖成功链路与关键错误路径。
+6. 评分写接口已支持单用户 upsert，并可在详情接口返回最新 `myRating`。
 
 ### 4.2 下一步计划（Next Steps）
 
-1. 进入 `rating` 写接口：`POST /stalls/{stallId}/ratings`，实现单用户评分 upsert。
-2. 将 `stall` 模块从内存仓储升级为 MySQL 持久化仓储，并补充仓储层测试。
-3. 基于评分数据回填并维护 `avgRating/ratingCount` 的一致性更新链路。
+1. 进入 `comment` 模块：`POST /stalls/{stallId}/comments` + 一级评论游标列表。
+2. 进入 `like` 模块：`POST/DELETE /comments/{commentId}/like` 并保证幂等。
+3. 将 `stall/rating` 模块从内存仓储升级为 MySQL 持久化仓储，并补充仓储层测试。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
@@ -86,5 +100,5 @@
 ### 4.4 风险与注意事项（Risks / Watchouts）
 
 1. 当前内存仓储仅用于开发验证，不适合生产并发与持久化要求。
-2. `myRating` 目前由内存数据模拟，后续需与真实 `ratings` 表联动。
-3. 排行榜模块尚未接入，当前 `score_desc` 仅反映窗口聚合评分字段。
+2. 当前评分写入与聚合更新仍基于内存仓储，后续需与真实 `ratings` 表联动。
+3. 排行榜模块尚未接入，当前 `score_desc` 仅反映内存中的窗口聚合评分字段。

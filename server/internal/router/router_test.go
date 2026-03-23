@@ -220,8 +220,8 @@ func TestStallAndCanteenEndpoints(t *testing.T) {
 	if !ok {
 		t.Fatalf("stall detail data should be object")
 	}
-	if _, exists := detailData["myRating"]; exists {
-		t.Fatalf("guest stall detail should not include myRating")
+	if value, exists := detailData["myRating"]; !exists || value != nil {
+		t.Fatalf("guest stall detail myRating should be null")
 	}
 
 	loginBody := map[string]interface{}{
@@ -291,6 +291,165 @@ func TestStallListInvalidParams(t *testing.T) {
 	}
 }
 
+func TestUpsertStallRatingEndpoint(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
+		"email":    "rating@example.com",
+		"nickname": "Rater",
+		"password": "Pass@123456",
+	})
+	loginResp := requestJSON(t, engine, http.MethodPost, "/api/v1/auth/login", map[string]interface{}{
+		"email":    "rating@example.com",
+		"password": "Pass@123456",
+	})
+	if loginResp.Code != http.StatusOK {
+		t.Fatalf("rating login status = %d, want 200", loginResp.Code)
+	}
+	loginEnvelope := decodeEnvelope(t, loginResp.Body.Bytes())
+	loginData, ok := loginEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("rating login data should be object")
+	}
+	accessToken, ok := loginData["accessToken"].(string)
+	if !ok || accessToken == "" {
+		t.Fatalf("rating access token should not be empty")
+	}
+
+	resp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/ratings", map[string]interface{}{"score": 4}, accessToken)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("upsert rating status = %d, want 200", resp.Code)
+	}
+	envelope := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, envelope["code"]); got != 0 {
+		t.Fatalf("upsert rating code = %d, want 0", got)
+	}
+	data, ok := envelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("upsert rating data should be object")
+	}
+	if got := asInt(t, data["stallId"]); got != 101 {
+		t.Fatalf("upsert rating stallId = %d, want 101", got)
+	}
+	if got := asInt(t, data["score"]); got != 4 {
+		t.Fatalf("upsert rating score = %d, want 4", got)
+	}
+	createdCount := asInt(t, data["ratingCount"])
+	if createdCount != 533 {
+		t.Fatalf("upsert rating count = %d, want 533", createdCount)
+	}
+	createdAvg := asFloat(t, data["avgRating"])
+	assertFloatNear(t, createdAvg, 2451.2/533.0, 1e-9)
+
+	detailResp := requestWithAuth(t, engine, http.MethodGet, "/api/v1/stalls/101", accessToken)
+	if detailResp.Code != http.StatusOK {
+		t.Fatalf("detail after upsert status = %d, want 200", detailResp.Code)
+	}
+	detailEnvelope := decodeEnvelope(t, detailResp.Body.Bytes())
+	detailData, ok := detailEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("detail data should be object")
+	}
+	if got := asInt(t, detailData["myRating"]); got != 4 {
+		t.Fatalf("detail myRating = %d, want 4", got)
+	}
+
+	resp = requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/ratings", map[string]interface{}{"score": 2}, accessToken)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("update rating status = %d, want 200", resp.Code)
+	}
+	updated := decodeEnvelope(t, resp.Body.Bytes())
+	updatedData, ok := updated["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("updated rating data should be object")
+	}
+	if got := asInt(t, updatedData["score"]); got != 2 {
+		t.Fatalf("updated rating score = %d, want 2", got)
+	}
+	updatedCount := asInt(t, updatedData["ratingCount"])
+	if updatedCount != 533 {
+		t.Fatalf("updated rating count = %d, want 533", updatedCount)
+	}
+	updatedAvg := asFloat(t, updatedData["avgRating"])
+	assertFloatNear(t, updatedAvg, 2449.2/533.0, 1e-9)
+
+	detailResp = requestWithAuth(t, engine, http.MethodGet, "/api/v1/stalls/101", accessToken)
+	if detailResp.Code != http.StatusOK {
+		t.Fatalf("detail after update status = %d, want 200", detailResp.Code)
+	}
+	detailEnvelope = decodeEnvelope(t, detailResp.Body.Bytes())
+	detailData, ok = detailEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("detail data after update should be object")
+	}
+	if got := asInt(t, detailData["myRating"]); got != 2 {
+		t.Fatalf("detail myRating after update = %d, want 2", got)
+	}
+
+	resp = requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/ratings", map[string]interface{}{"score": 0}, accessToken)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("invalid score status = %d, want 400", resp.Code)
+	}
+	badReq := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, badReq["code"]); got != 40001 {
+		t.Fatalf("invalid score code = %d, want 40001", got)
+	}
+
+	resp = requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/ratings", map[string]interface{}{"score": 6}, accessToken)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("score too large status = %d, want 400", resp.Code)
+	}
+	tooLarge := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, tooLarge["code"]); got != 40001 {
+		t.Fatalf("score too large code = %d, want 40001", got)
+	}
+
+	resp = requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/ratings", map[string]interface{}{}, accessToken)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("missing score status = %d, want 400", resp.Code)
+	}
+	missing := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, missing["code"]); got != 40001 {
+		t.Fatalf("missing score code = %d, want 40001", got)
+	}
+
+	resp = requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/ratings", map[string]interface{}{"score": "bad"}, accessToken)
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("wrong score type status = %d, want 400", resp.Code)
+	}
+	wrongType := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, wrongType["code"]); got != 40001 {
+		t.Fatalf("wrong score type code = %d, want 40001", got)
+	}
+
+	resp = requestJSON(t, engine, http.MethodPost, "/api/v1/stalls/101/ratings", map[string]interface{}{"score": 5})
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("guest upsert status = %d, want 401", resp.Code)
+	}
+	unauthorized := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, unauthorized["code"]); got != 40101 {
+		t.Fatalf("guest upsert code = %d, want 40101", got)
+	}
+
+	resp = requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/101/ratings", map[string]interface{}{"score": 5}, "bad-token")
+	if resp.Code != http.StatusUnauthorized {
+		t.Fatalf("invalid token upsert status = %d, want 401", resp.Code)
+	}
+	badToken := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, badToken["code"]); got != 40101 {
+		t.Fatalf("invalid token upsert code = %d, want 40101", got)
+	}
+
+	resp = requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/stalls/999999/ratings", map[string]interface{}{"score": 5}, accessToken)
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("upsert unknown stall status = %d, want 404", resp.Code)
+	}
+	notFound := decodeEnvelope(t, resp.Body.Bytes())
+	if got := asInt(t, notFound["code"]); got != 40401 {
+		t.Fatalf("upsert unknown stall code = %d, want 40401", got)
+	}
+}
+
 func requestJSON(t *testing.T, handler http.Handler, method string, path string, body map[string]interface{}) *httptest.ResponseRecorder {
 	t.Helper()
 	payload, err := json.Marshal(body)
@@ -315,6 +474,20 @@ func requestNoBody(t *testing.T, handler http.Handler, method string, path strin
 func requestWithAuth(t *testing.T, handler http.Handler, method string, path string, accessToken string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequest(method, path, nil)
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	return rr
+}
+
+func requestJSONWithAuth(t *testing.T, handler http.Handler, method string, path string, body map[string]interface{}, accessToken string) *httptest.ResponseRecorder {
+	t.Helper()
+	payload, err := json.Marshal(body)
+	if err != nil {
+		t.Fatalf("marshal body failed: %v", err)
+	}
+	req := httptest.NewRequest(method, path, bytes.NewReader(payload))
+	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
@@ -346,4 +519,24 @@ func asInt(t *testing.T, v interface{}) int {
 		t.Fatalf("value should be float64 in json map")
 	}
 	return int(f)
+}
+
+func asFloat(t *testing.T, v interface{}) float64 {
+	t.Helper()
+	f, ok := v.(float64)
+	if !ok {
+		t.Fatalf("value should be float64 in json map")
+	}
+	return f
+}
+
+func assertFloatNear(t *testing.T, got float64, want float64, tolerance float64) {
+	t.Helper()
+	delta := got - want
+	if delta < 0 {
+		delta = -delta
+	}
+	if delta > tolerance {
+		t.Fatalf("float mismatch: got %.12f want %.12f (tol %.12f)", got, want, tolerance)
+	}
 }

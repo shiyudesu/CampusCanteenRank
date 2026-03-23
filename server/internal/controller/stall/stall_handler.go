@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
+	dto "CampusCanteenRank/server/internal/dto/stall"
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
 	"CampusCanteenRank/server/internal/pkg/response"
 	"CampusCanteenRank/server/internal/service/stall"
@@ -72,6 +73,38 @@ func (h *StallHandler) GetStallDetail(c *gin.Context) {
 	response.OK(c, data)
 }
 
+func (h *StallHandler) UpsertUserRating(c *gin.Context) {
+	stallID, err := strconv.ParseInt(c.Param("stallId"), 10, 64)
+	if err != nil {
+		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		return
+	}
+
+	var req dto.UpsertRatingRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		return
+	}
+
+	rawUserID, ok := c.Get("userId")
+	if !ok {
+		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
+		return
+	}
+	userID, ok := rawUserID.(int64)
+	if !ok || userID <= 0 {
+		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
+		return
+	}
+
+	data, serviceErr := h.service.UpsertUserRating(c.Request.Context(), userID, stallID, req.Score)
+	if serviceErr != nil {
+		h.writeError(c, serviceErr)
+		return
+	}
+	response.OK(c, data)
+}
+
 func parseIntQuery(raw string, def int) (int, error) {
 	if raw == "" {
 		return def, nil
@@ -100,6 +133,8 @@ func (h *StallHandler) writeError(c *gin.Context, err error) {
 		switch appErr.Code {
 		case errpkg.CodeBadRequest:
 			response.Fail(c, http.StatusBadRequest, appErr.Code, appErr.Message)
+		case errpkg.CodeUnauthorized:
+			response.Fail(c, http.StatusUnauthorized, appErr.Code, appErr.Message)
 		case errpkg.CodeNotFound:
 			response.Fail(c, http.StatusNotFound, appErr.Code, appErr.Message)
 		default:

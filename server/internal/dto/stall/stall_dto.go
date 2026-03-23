@@ -32,5 +32,16 @@ type StallDetailData struct {
 	FoodTypeID  int64   `json:"foodTypeId"`
 	AvgRating   float64 `json:"avgRating"`
 	RatingCount int64   `json:"ratingCount"`
-	MyRating    *int    `json:"myRating,omitempty"`
+	MyRating    *int    `json:"myRating"`
+}
+
+type UpsertRatingRequest struct {
+	Score int `json:"score" binding:"required,min=1,max=5"`
+}
+
+type UpsertRatingData struct {
+	StallID     int64   `json:"stallId"`
+	Score       int     `json:"score"`
+	AvgRating   float64 `json:"avgRating"`
+	RatingCount int64   `json:"ratingCount"`
 }

@@ -45,6 +45,7 @@ func NewEngineWithRepositories(
 	v1.GET("/canteens", stallHandler.ListCanteens)
 	v1.GET("/stalls", stallHandler.ListStalls)
 	v1.GET("/stalls/:stallId", middleware.OptionalAuth(secret), stallHandler.GetStallDetail)
+	v1.POST("/stalls/:stallId/ratings", middleware.Auth(secret), stallHandler.UpsertUserRating)
 
 	return r
 }

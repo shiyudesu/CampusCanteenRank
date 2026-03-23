@@ -116,6 +116,25 @@ func (s *StallService) GetStallDetail(ctx context.Context, stallID int64, userID
 	return data, nil
 }
 
+func (s *StallService) UpsertUserRating(ctx context.Context, userID int64, stallID int64, score int) (*dto.UpsertRatingData, error) {
+	if userID <= 0 || stallID <= 0 || score < 1 || score > 5 {
+		return nil, errpkg.New(errpkg.CodeBadRequest, "invalid params", nil)
+	}
+	updated, err := s.repo.UpsertUserRating(ctx, userID, stallID, score)
+	if err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return nil, errpkg.New(errpkg.CodeNotFound, "stall not found", nil)
+		}
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	return &dto.UpsertRatingData{
+		StallID:     updated.ID,
+		Score:       score,
+		AvgRating:   updated.AvgRating,
+		RatingCount: updated.RatingCount,
+	}, nil
+}
+
 func decodeStallCursor(raw string) (*repository.StallCursor, error) {
 	if raw == "" {
 		return nil, nil
