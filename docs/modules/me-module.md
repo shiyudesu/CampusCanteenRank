@@ -71,12 +71,12 @@
 2. `me/ratings` 已支持按当前登录用户返回评分列表（游标分页）。
 3. `me` 接口已统一接入鉴权中间件，未登录返回 `40101`。
 4. 评论与评分仓储均已具备按用户维度查询能力。
+5. `me/comments` 已接入 `likedByMe` 真实态（基于当前用户点赞关系实时计算）。
 
 ### 4.2 下一步计划（Next Steps）
 
 1. 将 `me/comments`、`me/ratings` 从内存仓储迁移到 MySQL 持久化实现。
-2. 在 `me/comments` 响应中接入 `likedByMe` 的真实态。
-3. 增加 `me` 模块 service 层细粒度单元测试。
+2. 增加 `me` 模块 service 层细粒度单元测试。
 
 ### 4.3 待优化事项（Optimization Backlog）
 

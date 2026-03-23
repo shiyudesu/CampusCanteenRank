@@ -1222,6 +1222,11 @@ func TestMeEndpoints(t *testing.T) {
 		}
 	}
 
+	myCommentLikeResp := requestJSONWithAuth(t, engine, http.MethodPost, "/api/v1/comments/9001/like", map[string]interface{}{}, accessToken)
+	if myCommentLikeResp.Code != http.StatusOK {
+		t.Fatalf("like existing my comment status = %d, want 200", myCommentLikeResp.Code)
+	}
+
 	firstCommentPage := requestWithAuth(t, engine, http.MethodGet, "/api/v1/me/comments?limit=2", accessToken)
 	if firstCommentPage.Code != http.StatusOK {
 		t.Fatalf("my comments first page status = %d, want 200", firstCommentPage.Code)
@@ -1237,6 +1242,40 @@ func TestMeEndpoints(t *testing.T) {
 	firstCommentItems, ok := firstCommentData["items"].([]interface{})
 	if !ok || len(firstCommentItems) != 2 {
 		t.Fatalf("my comments first page len = %d, want 2", len(firstCommentItems))
+	}
+	fullCommentPage := requestWithAuth(t, engine, http.MethodGet, "/api/v1/me/comments?limit=20", accessToken)
+	if fullCommentPage.Code != http.StatusOK {
+		t.Fatalf("my comments full page status = %d, want 200", fullCommentPage.Code)
+	}
+	fullCommentEnvelope := decodeEnvelope(t, fullCommentPage.Body.Bytes())
+	fullCommentData, ok := fullCommentEnvelope["data"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("my comments full page data should be object")
+	}
+	fullCommentItems, ok := fullCommentData["items"].([]interface{})
+	if !ok || len(fullCommentItems) == 0 {
+		t.Fatalf("my comments full page should contain items")
+	}
+	likedFound := false
+	for _, raw := range fullCommentItems {
+		item, ok := raw.(map[string]interface{})
+		if !ok {
+			t.Fatalf("my comments full page item should be object")
+		}
+		id := asInt(t, item["id"])
+		likedByMe, ok := item["likedByMe"].(bool)
+		if !ok {
+			t.Fatalf("my comments full page likedByMe should be bool")
+		}
+		if id == 9001 {
+			likedFound = true
+			if !likedByMe {
+				t.Fatalf("my comments liked item likedByMe should be true")
+			}
+		}
+	}
+	if !likedFound {
+		t.Fatalf("my comments should contain liked seed comment")
 	}
 	if hasMore, ok := firstCommentData["hasMore"].(bool); !ok || !hasMore {
 		t.Fatalf("my comments first page hasMore should be true")

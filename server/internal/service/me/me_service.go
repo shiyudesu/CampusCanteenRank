@@ -89,6 +89,11 @@ func (s *MeService) ListMyComments(ctx context.Context, userID int64, limit int,
 
 	out := make([]commentdto.CommentItem, 0, len(items))
 	for _, item := range items {
+		likedByMe, likedErr := s.resolveLikedByMe(ctx, userID, item.ID)
+		if likedErr != nil {
+			return nil, likedErr
+		}
+
 		commentItem := commentdto.CommentItem{
 			ID:            item.ID,
 			StallID:       item.StallID,
@@ -100,7 +105,7 @@ func (s *MeService) ListMyComments(ctx context.Context, userID int64, limit int,
 			ReplyCount:    item.ReplyCount,
 			CreatedAt:     item.CreatedAt.UTC().Format(time.RFC3339),
 			Author:        commentdto.CommentAuthorVO{ID: item.UserID, Nickname: nicknames[item.UserID]},
-			LikedByMe:     false,
+			LikedByMe:     likedByMe,
 		}
 		if item.ReplyToUserID > 0 {
 			replyToUser := commentdto.CommentAuthorVO{ID: item.ReplyToUserID, Nickname: nicknames[item.ReplyToUserID]}
@@ -120,6 +125,20 @@ func (s *MeService) ListMyComments(ctx context.Context, userID int64, limit int,
 	}
 
 	return &medto.MyCommentListData{Items: out, NextCursor: nextCursor, HasMore: hasMore}, nil
+}
+
+func (s *MeService) resolveLikedByMe(ctx context.Context, viewerUserID int64, commentID int64) (bool, error) {
+	if viewerUserID <= 0 {
+		return false, nil
+	}
+	likedByMe, err := s.comments.HasLiked(ctx, viewerUserID, commentID)
+	if err != nil {
+		if errors.Is(err, commentrepo.ErrNotFound) {
+			return false, errpkg.New(errpkg.CodeNotFound, "comment not found", nil)
+		}
+		return false, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	return likedByMe, nil
 }
 
 func (s *MeService) ListMyRatings(ctx context.Context, userID int64, limit int, cursorText string) (*medto.MyRatingListData, error) {
