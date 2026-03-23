@@ -17,13 +17,35 @@ import (
 )
 
 func NewEngine(secret string) *gin.Engine {
-	return NewEngineWithRepositories(secret, authrepo.NewMemoryUserRepository(), authrepo.NewMemoryRefreshTokenRepository())
+	return NewEngineWithAllRepositories(
+		secret,
+		authrepo.NewMemoryUserRepository(),
+		authrepo.NewMemoryRefreshTokenRepository(),
+		stallrepo.NewMemoryStallRepository(),
+		commentrepo.NewMemoryCommentRepository(),
+	)
 }
 
 func NewEngineWithRepositories(
 	secret string,
 	userRepo authrepo.UserRepository,
 	refreshRepo authrepo.RefreshTokenRepository,
+) *gin.Engine {
+	return NewEngineWithAllRepositories(
+		secret,
+		userRepo,
+		refreshRepo,
+		stallrepo.NewMemoryStallRepository(),
+		commentrepo.NewMemoryCommentRepository(),
+	)
+}
+
+func NewEngineWithAllRepositories(
+	secret string,
+	userRepo authrepo.UserRepository,
+	refreshRepo authrepo.RefreshTokenRepository,
+	stallRepository stallrepo.StallRepository,
+	commentRepository commentrepo.CommentRepository,
 ) *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.TraceID())
@@ -36,11 +58,15 @@ func NewEngineWithRepositories(
 	if refreshRepo == nil {
 		refreshRepo = authrepo.NewMemoryRefreshTokenRepository()
 	}
+	if stallRepository == nil {
+		stallRepository = stallrepo.NewMemoryStallRepository()
+	}
+	if commentRepository == nil {
+		commentRepository = commentrepo.NewMemoryCommentRepository()
+	}
 
 	authService := authservice.NewAuthService(userRepo, refreshRepo, secret)
 	authHandler := authcontroller.NewAuthHandler(authService)
-	stallRepository := stallrepo.NewMemoryStallRepository()
-	commentRepository := commentrepo.NewMemoryCommentRepository()
 	stallHandler := stallcontroller.NewStallHandler(stallservice.NewStallService(stallRepository))
 	commentHandler := commentcontroller.NewCommentHandler(commentservice.NewCommentService(commentRepository, stallRepository, userRepo))
 	meHandler := mecontroller.NewMeHandler(meservice.NewMeService(commentRepository, stallRepository, userRepo))

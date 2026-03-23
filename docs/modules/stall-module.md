@@ -28,7 +28,7 @@
 - `server/internal/service/stall/stall_service.go`
 - `server/internal/controller/stall/stall_handler.go`
 
-当前采用内存仓储作为第一阶段实现，确保接口契约可联调、可测试。
+当前已支持 MySQL 持久化仓储（并保留内存仓储作为本地/测试回退路径）。
 
 ### 2.2 游标分页
 
@@ -84,12 +84,13 @@
 4. 详情接口已支持可选鉴权上下文，并在登录场景返回 `myRating`。
 5. 路由测试已覆盖成功链路与关键错误路径。
 6. 评分写接口已支持单用户 upsert，并可在详情接口返回最新 `myRating`。
+7. `stall/rating` 仓储已新增 MySQL 实现：覆盖食堂/窗口查询、评分 upsert 与用户评分分页。
+8. 运行时装配已支持在 MySQL 可用时自动切换到持久化仓储。
 
 ### 4.2 下一步计划（Next Steps）
 
-1. 进入 `comment` 模块：`POST /stalls/{stallId}/comments` + 一级评论游标列表。
-2. 进入 `like` 模块：`POST/DELETE /comments/{commentId}/like` 并保证幂等。
-3. 将 `stall/rating` 模块从内存仓储升级为 MySQL 持久化仓储，并补充仓储层测试。
+1. 补充 `stall/rating` MySQL 仓储集成测试（并发 upsert、分页稳定性与精度边界）。
+2. 将当前 AutoMigrate 策略升级为显式 migration 文件，提升生产发布可控性。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
@@ -99,6 +100,6 @@
 
 ### 4.4 风险与注意事项（Risks / Watchouts）
 
-1. 当前内存仓储仅用于开发验证，不适合生产并发与持久化要求。
-2. 当前评分写入与聚合更新仍基于内存仓储，后续需与真实 `ratings` 表联动。
-3. 排行榜模块尚未接入，当前 `score_desc` 仅反映内存中的窗口聚合评分字段。
+1. 当前仍保留内存回退策略（MySQL 初始化失败回退），生产环境需配合启动门禁。
+2. 评分写入已接入 MySQL 持久化，需重点关注索引与并发热点下的事务表现。
+3. 排行榜模块尚未接入，当前 `score_desc` 反映实时聚合评分但未引入独立排行缓存层。

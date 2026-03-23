@@ -81,7 +81,8 @@
 
 ### 4.2 下一步计划（Next Steps）
 
-1. 将 `me/comments`、`me/ratings` 从内存仓储迁移到 MySQL 持久化实现。
+1. 补充 `me` 模块在 MySQL 路径下的集成测试（尤其是跨页游标稳定性与 `likedByMe` 一致性）。
+2. 将当前 AutoMigrate 策略升级为显式 migration 文件，便于生产发布与回滚。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
@@ -91,6 +92,6 @@
 
 ### 4.4 风险与注意事项（Risks / Watchouts）
 
-1. 当前仍为内存仓储实现，不具备持久化与多实例一致性保障。
-2. `me/ratings` 当前依赖内存更新时间排序，重启后不保留历史轨迹。
-3. 后续迁移 MySQL 时需要补齐索引与事务策略，确保分页稳定性。
+1. 运行时已支持 MySQL 持久化仓储，但默认仍保留内存回退策略（初始化失败回退）。
+2. `me/comments` 与 `me/ratings` 已走持久化查询路径，后续需重点验证高并发下游标稳定性。
+3. 需补齐显式 migration 与索引治理，降低 AutoMigrate 在生产环境的变更风险。

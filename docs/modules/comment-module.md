@@ -27,7 +27,7 @@
 - `server/internal/service/comment/comment_service.go`
 - `server/internal/controller/comment/comment_handler.go`
 
-当前采用内存仓储作为阶段实现，目标是先打通接口契约与规则校验闭环。
+当前已支持 MySQL 持久化仓储（保留内存仓储用于无依赖本地联调与测试回退）。
 
 ### 2.2 发布评论规则
 
@@ -100,11 +100,13 @@
 7. 点赞模块已完成：支持 `POST/DELETE /api/v1/comments/{commentId}/like`，返回 `liked + likeCount`。
 8. 点赞接口幂等已落地：重复点赞/取消点赞不会报错且计数不重复增减。
 9. 回复列表接口已完成：支持 `GET /api/v1/comments/{rootCommentId}/replies`，返回 `items/nextCursor/hasMore`。
+10. 评论仓储已新增 MySQL 实现：覆盖创建、查询、分页、点赞幂等与 `likedByMe` 查询能力。
+11. 点赞写路径已切换为事务实现（点赞记录与 `like_count` 原子更新）。
 
 ### 4.2 下一步计划（Next Steps）
 
-1. 将评论与点赞计数逻辑迁移到 MySQL 持久化仓储，并补充仓储层测试。
-2. 在评论列表中接入 `likedByMe` 的真实态计算，打通“列表 + 点赞态”一致性。
+1. 补充 MySQL 评论仓储的集成测试（覆盖事务冲突与分页游标稳定性）。
+2. 将当前 AutoMigrate 策略升级为显式 migration 文件，便于生产可控发布。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
@@ -114,6 +116,6 @@
 
 ### 4.4 风险与注意事项（Risks / Watchouts）
 
-1. 当前评论仓储为内存实现，不具备持久化与生产并发能力。
+1. 当前默认仍保留内存回退策略（MySQL 初始化失败会回退），生产环境需配合健康检查与启动门禁。
 2. author 信息依赖用户仓储查询；历史脏数据场景下会降级为占位昵称。
-3. 当前已完成点赞与回复列表接口，主要风险集中在内存仓储未持久化。
+3. 当前已接入 MySQL 持久化，主要风险转为索引与迁移策略治理（需补齐显式 migration）。
