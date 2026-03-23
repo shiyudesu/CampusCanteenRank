@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"CampusCanteenRank/server/internal/auth/repository"
+	logpkg "CampusCanteenRank/server/internal/pkg/logger"
 	"CampusCanteenRank/server/internal/router"
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/mysql"
@@ -17,6 +18,8 @@ import (
 const defaultRedisDB = 0
 
 func main() {
+	logpkg.InitFromEnv()
+
 	secret := os.Getenv("JWT_SECRET")
 	if secret == "" {
 		secret = "dev-only-secret-change-me-please-1234567890"

@@ -1,10 +1,11 @@
 package middleware
 
 import (
-	"log"
 	"time"
 
+	logpkg "CampusCanteenRank/server/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func RequestLogger() gin.HandlerFunc {
@@ -17,6 +18,20 @@ func RequestLogger() gin.HandlerFunc {
 
 		latency := time.Since(start)
 		traceID := GetTraceID(c)
-		log.Printf("trace_id=%s method=%s path=%s status=%d latency=%s client_ip=%s", traceID, method, path, c.Writer.Status(), latency, c.ClientIP())
+		userID, _ := c.Get("userId")
+
+		requestID := traceID
+		logpkg.L().Info("http request",
+			zap.String("trace_id", traceID),
+			zap.String("request_id", requestID),
+			zap.Any("user_id", userID),
+			zap.String("method", method),
+			zap.String("path", path),
+			zap.Int("status", c.Writer.Status()),
+			zap.Duration("latency", latency),
+			zap.String("client_ip", c.ClientIP()),
+			zap.Any("query", logpkg.SanitizeQuery(c.Request.URL.Query())),
+			zap.Any("headers", logpkg.SanitizeHeaders(c.Request.Header)),
+		)
 	}
 }

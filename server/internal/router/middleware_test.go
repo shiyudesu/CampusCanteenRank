@@ -3,14 +3,17 @@ package router
 import (
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"CampusCanteenRank/server/internal/middleware"
+	logpkg "CampusCanteenRank/server/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestTraceIDMiddlewareGeneratesHeader(t *testing.T) {
@@ -108,12 +111,10 @@ func TestRecoverMiddlewareReturnsUnifiedEnvelope(t *testing.T) {
 
 func TestMiddlewareChainLogsAndRecoversPanicWithTraceID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	var logBuffer strings.Builder
-	prevOutput := log.Writer()
-	log.SetOutput(&logBuffer)
-	t.Cleanup(func() {
-		log.SetOutput(prevOutput)
-	})
+	core, recorded := observer.New(zapcore.InfoLevel)
+	testLogger := zap.New(core)
+	restore := logpkg.SetLoggerForTest(testLogger, []string{"authorization", "token"})
+	t.Cleanup(restore)
 
 	r := gin.New()
 	r.Use(middleware.TraceID())
@@ -125,6 +126,7 @@ func TestMiddlewareChainLogsAndRecoversPanicWithTraceID(t *testing.T) {
 
 	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
 	req.Header.Set(middleware.TraceIDHeader, "trace-abc")
+	req.Header.Set("Authorization", "Bearer secret-token")
 	rr := httptest.NewRecorder()
 	r.ServeHTTP(rr, req)
 
@@ -144,14 +146,51 @@ func TestMiddlewareChainLogsAndRecoversPanicWithTraceID(t *testing.T) {
 		t.Fatalf("code = %d, want 50000", got)
 	}
 
-	logs := logBuffer.String()
-	if !strings.Contains(logs, "trace_id=trace-abc") {
-		t.Fatalf("logs should include trace id, logs=%s", logs)
+	entries := recorded.All()
+	if len(entries) < 2 {
+		t.Fatalf("expected panic and request logs, got %d", len(entries))
 	}
-	if !strings.Contains(logs, "panic=boom") {
-		t.Fatalf("logs should include panic value, logs=%s", logs)
+
+	panicFound := false
+	requestFound := false
+	for _, entry := range entries {
+		if entry.Message == "panic recovered" {
+			panicFound = true
+			if traceID := entry.ContextMap()["trace_id"]; traceID != "trace-abc" {
+				t.Fatalf("panic log trace_id = %v, want trace-abc", traceID)
+			}
+		}
+		if entry.Message == "http request" {
+			requestFound = true
+			ctx := entry.ContextMap()
+			if traceID := ctx["trace_id"]; traceID != "trace-abc" {
+				t.Fatalf("request log trace_id = %v, want trace-abc", traceID)
+			}
+			if method := ctx["method"]; method != "GET" {
+				t.Fatalf("request log method = %v, want GET", method)
+			}
+			if path := ctx["path"]; path != "/panic" {
+				t.Fatalf("request log path = %v, want /panic", path)
+			}
+			switch headers := ctx["headers"].(type) {
+			case map[string]any:
+				if got := headers["Authorization"]; got != "***" {
+					t.Fatalf("authorization header should be masked, got %v", got)
+				}
+			case map[string]string:
+				if got := headers["Authorization"]; got != "***" {
+					t.Fatalf("authorization header should be masked, got %v", got)
+				}
+			default:
+				t.Fatalf("request log headers should be map, got %T", ctx["headers"])
+			}
+		}
 	}
-	if !strings.Contains(logs, "method=GET") || !strings.Contains(logs, "path=/panic") {
-		t.Fatalf("logs should include request method/path, logs=%s", logs)
+
+	if !panicFound {
+		t.Fatalf("panic recovered log not found")
+	}
+	if !requestFound {
+		t.Fatalf("http request log not found")
 	}
 }
