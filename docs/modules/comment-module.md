@@ -105,11 +105,13 @@
 12. 评论列表与回复列表的 `likedByMe` 已升级为批量查询，减少逐条查询带来的 N+1 开销。
 13. 新增 MySQL 仓储集成测试文件（环境变量 `MYSQL_DSN` 可用时执行）：覆盖点赞/取消点赞幂等、`HasLikedBatch` 边界语义、`ErrNotFound` 行为与同时间戳游标分页稳定性。
 14. 已将“回复创建 + 根评论 `replyCount` 递增”改为仓储层原子写入：新增 `CreateReplyAndIncrementRoot`，内存/ MySQL 仓储均已接入，服务层回复路径切换为单次原子调用。
+15. 评论点赞写路径已接入 ranking 缓存失效：`LikeComment/UnlikeComment` 成功后触发 `InvalidateRankingCache`，避免排行榜缓存滞后。
+16. 评论 MySQL 集成测试初始化流程已接入显式迁移执行（`migration.ApplySQLMigrations`），降低对 `AutoMigrate` 的隐式依赖。
 
 ### 4.2 下一步计划（Next Steps）
 
 1. 为 MySQL 评论仓储补充并发冲突场景的强化测试（多协程点赞竞争与事务锁行为观测）。
-2. 将当前 AutoMigrate 策略逐步收敛到显式 migration 执行路径，并在 CI/CD 接入迁移门禁。
+2. 在 CI/CD 固化迁移执行门禁，确保每次评论相关集成测试都基于最新 SQL schema。
 3. 为 `HasLikedBatch` 增加大页性能基线测试（高评论量场景下的耗时与查询次数监控）。
 4. 为回复创建原子事务补充 MySQL 集成级回归用例（覆盖 root 不存在与并发回帖场景）。
 
@@ -122,6 +124,6 @@
 
 1. 当前默认仍保留内存回退策略（MySQL 初始化失败会回退），生产环境需配合健康检查与启动门禁。
 2. author 信息依赖用户仓储查询；历史脏数据场景下会降级为占位昵称。
-3. 当前已接入 MySQL 持久化，主要风险转为索引与迁移策略治理（需补齐显式 migration）。
+3. 当前已接入 MySQL 持久化，主要风险转为索引与迁移脚本版本治理（需确保环境间 schema 一致）。
 4. 批量 `likedByMe` 依赖 `comment_likes(comment_id,user_id)` 索引性能，需持续关注大数据量分页场景。
 5. MySQL 集成测试依赖 `MYSQL_DSN` 环境；未配置时会跳过相关测试，需在 CI 中显式提供数据库环境避免覆盖盲区。

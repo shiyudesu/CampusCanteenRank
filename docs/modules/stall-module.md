@@ -87,11 +87,13 @@
 7. `stall/rating` 仓储已新增 MySQL 实现：覆盖食堂/窗口查询、评分 upsert 与用户评分分页。
 8. 运行时装配已支持在 MySQL 可用时自动切换到持久化仓储。
 9. 可选鉴权中间件已优化：当请求携带异常 Authorization 时，`GET /stalls/{stallId}` 回退游客态而非直接 401。
+10. `stall` MySQL 集成测试初始化流程已接入显式迁移执行（`migration.ApplySQLMigrations`），确保评分写路径测试基于统一 schema 基线。
+11. 评分写路径触发的 ranking 缓存失效链路已与评论写路径一致纳入统一失效策略。
 
 ### 4.2 下一步计划（Next Steps）
 
 1. 补充 `stall/rating` MySQL 仓储集成测试（并发 upsert、分页稳定性与精度边界）。
-2. 将当前 AutoMigrate 策略升级为显式 migration 文件，提升生产发布可控性。
+2. 在 CI/CD 固化 migration 执行步骤并观测评分链路回归成本。
 3. 补充可选鉴权行为的路由测试（异常 Authorization 请求头下仍返回详情与 `myRating=null`）。
 
 ### 4.3 待优化事项（Optimization Backlog）
@@ -103,7 +105,7 @@
 
 ### 4.4 风险与注意事项（Risks / Watchouts）
 
-1. 当前仍保留内存回退策略（MySQL 初始化失败回退），生产环境需配合启动门禁。
+1. 当前仍保留内存回退策略（MySQL 初始化或迁移失败回退），生产环境需配合启动门禁与日志告警。
 2. 评分写入已接入 MySQL 持久化，需重点关注索引与并发热点下的事务表现。
 3. 排行榜模块尚未接入，当前 `score_desc` 反映实时聚合评分但未引入独立排行缓存层。
 4. 可选鉴权回退游客态提升兼容性，但也需结合风控日志观察异常头部流量。

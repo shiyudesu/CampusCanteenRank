@@ -92,12 +92,14 @@
 7. `ranking` 仓储已新增 MySQL 持久化实现，并在 `server/cmd/api/main.go` 持久化模式下完成装配切换。
 8. 新增显式 migration 基线文件：`server/migrations/0001_init_schema.up.sql` 与 `0001_init_schema.down.sql`，覆盖当前核心业务表结构。
 9. 排行查询已接入 Redis 缓存包装仓储：持久化模式下默认按参数维度缓存 30 秒，Redis 不可用时自动降级为直连仓储。
+10. 排行缓存失效策略已扩展到写路径：`comment like/unlike` 成功后也会触发 `InvalidateRankingCache`，与评分写入、评论发布行为保持一致。
+11. 启动流程已接入 `server/internal/migration`：MySQL 连接成功后先执行 `server/migrations/*.up.sql`，再初始化仓储，进一步收敛运行时自动建表依赖。
 
 ### 4.2 下一步计划（Next Steps）
 
 1. 为 MySQL ranking 仓储补充集成测试（含真实 SQL 路径的筛选、排序与跨页稳定性）。
 2. 增加游标浮点边界测试（同分值/高并发分页）并验证跨页稳定性。
-3. 设计并落地评分/评论写路径触发的缓存失效机制（当前为 TTL 到期自然失效）。
+3. 将当前“全量前缀失效”策略演进为更细粒度 key 失效，降低高写入场景缓存抖动。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
@@ -109,6 +111,6 @@
 ### 4.4 风险与注意事项（Risks / Watchouts）
 
 1. ranking 已接入 MySQL 聚合查询路径，需持续关注高并发场景下的查询成本与索引命中。
-2. 当前缓存失效策略以 TTL 为主，极端高写入场景可能存在短时间数据延迟。
+2. 当前缓存失效使用前缀级批量删除，极端高写入场景需关注 Redis SCAN + DEL 频率与延迟抖动。
 3. 排行游标包含浮点排序值，需重点验证持久化路径下的精度与跨页一致性。
-4. 运行时仍保留 `AutoMigrate` 兜底逻辑，生产环境应以显式 migration 为准并配合发布门禁。
+4. 启动期迁移执行依赖 `server/migrations` 脚本完整性；若脚本缺失或执行失败会回退内存模式，需在 CI/CD 中提前发现并阻断。

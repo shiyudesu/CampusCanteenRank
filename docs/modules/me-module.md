@@ -79,11 +79,13 @@
 5. `me/comments` 已接入 `likedByMe` 真实态（基于当前用户点赞关系实时计算）。
 6. `me` 模块 service 层细粒度单元测试已补齐首批核心链路。
 7. `me/comments` 的 `likedByMe` 计算已切换为批量查询路径，减少逐条查询开销。
+8. 新增 `me` 模块 MySQL 集成测试（`server/internal/service/me/me_service_mysql_integration_test.go`），覆盖 `me/comments` 点赞态一致性与 `me/ratings` 游标分页链路。
+9. `me` 相关 MySQL 集成测试已统一接入显式迁移执行（`migration.ApplySQLMigrations`），与迁移基线保持一致。
 
 ### 4.2 下一步计划（Next Steps）
 
-1. 补充 `me` 模块在 MySQL 路径下的集成测试（尤其是跨页游标稳定性与 `likedByMe` 一致性）。
-2. 将当前 AutoMigrate 策略升级为显式 migration 文件，便于生产发布与回滚。
+1. 继续补充 `me` 模块 MySQL 集成场景（跨页游标稳定性边界、空结果与脏数据容错）。
+2. 在 CI/CD 中固定 migration + integration 流程，保证多环境一致性。
 3. 增加 `me/comments` 批量点赞态路径的性能基线测试，量化分页场景下查询次数与耗时变化。
 
 ### 4.3 待优化事项（Optimization Backlog）
@@ -96,5 +98,5 @@
 
 1. 运行时已支持 MySQL 持久化仓储，但默认仍保留内存回退策略（初始化失败回退）。
 2. `me/comments` 与 `me/ratings` 已走持久化查询路径，后续需重点验证高并发下游标稳定性。
-3. 需补齐显式 migration 与索引治理，降低 AutoMigrate 在生产环境的变更风险。
+3. 需持续治理显式 migration 与索引策略，避免 schema 漂移影响 `me` 查询稳定性。
 4. `me/comments` 的批量点赞态查询依赖评论点赞索引，在高并发分页读取场景需持续观察慢查询。
