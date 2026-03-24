@@ -194,11 +194,12 @@ func (s *CommentService) ListTopLevelComments(
 	}
 
 	out := make([]dto.CommentItem, 0, len(items))
+	likedMap, likedBatchErr := s.resolveLikedByMeBatch(ctx, viewerUserID, items)
+	if likedBatchErr != nil {
+		return nil, likedBatchErr
+	}
 	for _, item := range items {
-		likedByMe, likedErr := s.resolveLikedByMe(ctx, viewerUserID, item.ID)
-		if likedErr != nil {
-			return nil, likedErr
-		}
+		likedByMe := likedMap[item.ID]
 		out = append(out, toCommentItem(item, item.UserID, nicknames[item.UserID], likedByMe))
 	}
 
@@ -288,11 +289,12 @@ func (s *CommentService) ListReplies(
 	}
 
 	out := make([]dto.CommentItem, 0, len(items))
+	likedMap, likedBatchErr := s.resolveLikedByMeBatch(ctx, viewerUserID, items)
+	if likedBatchErr != nil {
+		return nil, likedBatchErr
+	}
 	for _, item := range items {
-		likedByMe, likedErr := s.resolveLikedByMe(ctx, viewerUserID, item.ID)
-		if likedErr != nil {
-			return nil, likedErr
-		}
+		likedByMe := likedMap[item.ID]
 		commentItem := toCommentItem(item, item.UserID, nicknames[item.UserID], likedByMe)
 		if item.ReplyToUserID > 0 {
 			replyToUser := dto.CommentAuthorVO{ID: item.ReplyToUserID, Nickname: nicknames[item.ReplyToUserID]}
@@ -326,6 +328,29 @@ func (s *CommentService) resolveLikedByMe(ctx context.Context, viewerUserID int6
 		return false, errpkg.New(errpkg.CodeInternal, "internal error", err)
 	}
 	return likedByMe, nil
+}
+
+func (s *CommentService) resolveLikedByMeBatch(ctx context.Context, viewerUserID int64, items []model.Comment) (map[int64]bool, error) {
+	result := make(map[int64]bool, len(items))
+	if len(items) == 0 || viewerUserID <= 0 {
+		for _, item := range items {
+			result[item.ID] = false
+		}
+		return result, nil
+	}
+
+	ids := make([]int64, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	likedMap, err := s.comments.HasLikedBatch(ctx, viewerUserID, ids)
+	if err != nil {
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	for _, item := range items {
+		result[item.ID] = likedMap[item.ID]
+	}
+	return result, nil
 }
 
 func (s *CommentService) LikeComment(ctx context.Context, userID int64, commentID int64) (*dto.ToggleLikeData, error) {

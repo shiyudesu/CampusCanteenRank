@@ -195,6 +195,31 @@ func (r *MySQLCommentRepository) HasLiked(ctx context.Context, userID int64, com
 	return likeCount > 0, nil
 }
 
+func (r *MySQLCommentRepository) HasLikedBatch(ctx context.Context, userID int64, commentIDs []int64) (map[int64]bool, error) {
+	result := make(map[int64]bool, len(commentIDs))
+	if len(commentIDs) == 0 {
+		return result, nil
+	}
+
+	for _, commentID := range commentIDs {
+		if commentID <= 0 {
+			continue
+		}
+		result[commentID] = false
+	}
+
+	var rows []mysqlCommentLikeRecord
+	if err := r.db.WithContext(ctx).
+		Where("user_id = ? AND comment_id IN ?", userID, commentIDs).
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		result[row.CommentID] = true
+	}
+	return result, nil
+}
+
 func (r *MySQLCommentRepository) ListTopLevelByStall(ctx context.Context, options CommentListOptions) ([]model.Comment, bool, error) {
 	limit := options.Limit
 	if limit <= 0 {

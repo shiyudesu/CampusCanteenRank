@@ -179,6 +179,29 @@ func TestMemoryCommentRepositoryHasLiked(t *testing.T) {
 	}
 }
 
+func TestMemoryCommentRepositoryHasLikedBatch(t *testing.T) {
+	repo := NewMemoryCommentRepository()
+	ctx := context.Background()
+
+	if _, err := repo.Like(ctx, 1001, 9001); err != nil {
+		t.Fatalf("seed like failed: %v", err)
+	}
+
+	liked, err := repo.HasLikedBatch(ctx, 1001, []int64{9001, 9002, 999999})
+	if err != nil {
+		t.Fatalf("has liked batch failed: %v", err)
+	}
+	if !liked[9001] {
+		t.Fatalf("comment 9001 should be liked")
+	}
+	if liked[9002] {
+		t.Fatalf("comment 9002 should not be liked")
+	}
+	if liked[999999] {
+		t.Fatalf("unknown comment should be treated as not liked")
+	}
+}
+
 func TestMemoryCommentRepositoryListRepliesByRootPagination(t *testing.T) {
 	repo := NewMemoryCommentRepository()
 	ctx := context.Background()

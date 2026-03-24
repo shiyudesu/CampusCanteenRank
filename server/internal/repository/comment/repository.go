@@ -31,6 +31,7 @@ type CommentRepository interface {
 	Like(ctx context.Context, userID int64, commentID int64) (int64, error)
 	Unlike(ctx context.Context, userID int64, commentID int64) (int64, error)
 	HasLiked(ctx context.Context, userID int64, commentID int64) (bool, error)
+	HasLikedBatch(ctx context.Context, userID int64, commentIDs []int64) (map[int64]bool, error)
 	ListTopLevelByStall(ctx context.Context, options CommentListOptions) ([]model.Comment, bool, error)
 	ListRepliesByRoot(ctx context.Context, rootCommentID int64, limit int, cursor *CommentCursor) ([]model.Comment, bool, error)
 	ListByUser(ctx context.Context, userID int64, limit int, cursor *CommentCursor) ([]model.Comment, bool, error)
@@ -192,6 +193,28 @@ func (r *MemoryCommentRepository) HasLiked(_ context.Context, userID int64, comm
 	}
 	_, exists := userSet[userID]
 	return exists, nil
+}
+
+func (r *MemoryCommentRepository) HasLikedBatch(_ context.Context, userID int64, commentIDs []int64) (map[int64]bool, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	result := make(map[int64]bool, len(commentIDs))
+	for _, commentID := range commentIDs {
+		item, ok := r.byID[commentID]
+		if !ok || item.Status != 1 {
+			result[commentID] = false
+			continue
+		}
+		userSet, ok := r.likes[commentID]
+		if !ok {
+			result[commentID] = false
+			continue
+		}
+		_, liked := userSet[userID]
+		result[commentID] = liked
+	}
+	return result, nil
 }
 
 func (r *MemoryCommentRepository) ListTopLevelByStall(_ context.Context, options CommentListOptions) ([]model.Comment, bool, error) {
