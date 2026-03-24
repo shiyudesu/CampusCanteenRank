@@ -10,6 +10,7 @@ import (
 
 	commentdto "CampusCanteenRank/server/internal/dto/comment"
 	medto "CampusCanteenRank/server/internal/dto/me"
+	commentmodel "CampusCanteenRank/server/internal/model/comment"
 	"CampusCanteenRank/server/internal/pkg/cursor"
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
@@ -88,11 +89,12 @@ func (s *MeService) ListMyComments(ctx context.Context, userID int64, limit int,
 	}
 
 	out := make([]commentdto.CommentItem, 0, len(items))
+	likedMap, likedBatchErr := s.resolveLikedByMeBatch(ctx, userID, items)
+	if likedBatchErr != nil {
+		return nil, likedBatchErr
+	}
 	for _, item := range items {
-		likedByMe, likedErr := s.resolveLikedByMe(ctx, userID, item.ID)
-		if likedErr != nil {
-			return nil, likedErr
-		}
+		likedByMe := likedMap[item.ID]
 
 		commentItem := commentdto.CommentItem{
 			ID:            item.ID,
@@ -125,6 +127,29 @@ func (s *MeService) ListMyComments(ctx context.Context, userID int64, limit int,
 	}
 
 	return &medto.MyCommentListData{Items: out, NextCursor: nextCursor, HasMore: hasMore}, nil
+}
+
+func (s *MeService) resolveLikedByMeBatch(ctx context.Context, viewerUserID int64, items []commentmodel.Comment) (map[int64]bool, error) {
+	result := make(map[int64]bool, len(items))
+	if len(items) == 0 || viewerUserID <= 0 {
+		for _, item := range items {
+			result[item.ID] = false
+		}
+		return result, nil
+	}
+
+	ids := make([]int64, 0, len(items))
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	likedMap, err := s.comments.HasLikedBatch(ctx, viewerUserID, ids)
+	if err != nil {
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	for _, item := range items {
+		result[item.ID] = likedMap[item.ID]
+	}
+	return result, nil
 }
 
 func (s *MeService) resolveLikedByMe(ctx context.Context, viewerUserID int64, commentID int64) (bool, error) {
