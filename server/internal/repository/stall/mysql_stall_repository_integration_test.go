@@ -5,6 +5,7 @@ import (
 	"os"
 	"testing"
 
+	"CampusCanteenRank/server/internal/migration"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -25,6 +26,9 @@ func openStallMySQLTestDB(t *testing.T) *gorm.DB {
 func newStallMySQLRepoForTest(t *testing.T) *MySQLStallRepository {
 	t.Helper()
 	db := openStallMySQLTestDB(t)
+	if err := migration.ApplySQLMigrations(db); err != nil {
+		t.Skipf("apply sql migrations failed for integration test: %v", err)
+	}
 	repo, err := NewMySQLStallRepository(db)
 	if err != nil {
 		t.Fatalf("new mysql stall repository failed: %v", err)

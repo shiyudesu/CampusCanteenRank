@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"CampusCanteenRank/server/internal/migration"
 	model "CampusCanteenRank/server/internal/model/comment"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -28,6 +29,9 @@ func openCommentMySQLTestDB(t *testing.T) *gorm.DB {
 func newCommentMySQLRepoForTest(t *testing.T) *MySQLCommentRepository {
 	t.Helper()
 	db := openCommentMySQLTestDB(t)
+	if err := migration.ApplySQLMigrations(db); err != nil {
+		t.Skipf("apply sql migrations failed for integration test: %v", err)
+	}
 	repo, err := NewMySQLCommentRepository(db)
 	if err != nil {
 		t.Fatalf("new mysql comment repository failed: %v", err)

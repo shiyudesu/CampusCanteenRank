@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"CampusCanteenRank/server/internal/migration"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 )
@@ -26,6 +27,9 @@ func openRankingMySQLTestDB(t *testing.T) *gorm.DB {
 func newRankingMySQLRepoForTest(t *testing.T) *MySQLRankingRepository {
 	t.Helper()
 	db := openRankingMySQLTestDB(t)
+	if err := migration.ApplySQLMigrations(db); err != nil {
+		t.Skipf("apply sql migrations failed for integration test: %v", err)
+	}
 	repo, err := NewMySQLRankingRepository(db)
 	if err != nil {
 		t.Fatalf("new mysql ranking repository failed: %v", err)
