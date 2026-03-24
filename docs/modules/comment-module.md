@@ -103,12 +103,13 @@
 10. 评论仓储已新增 MySQL 实现：覆盖创建、查询、分页、点赞幂等与 `likedByMe` 查询能力。
 11. 点赞写路径已切换为事务实现（点赞记录与 `like_count` 原子更新）。
 12. 评论列表与回复列表的 `likedByMe` 已升级为批量查询，减少逐条查询带来的 N+1 开销。
+13. 新增 MySQL 仓储集成测试文件（环境变量 `MYSQL_DSN` 可用时执行）：覆盖点赞/取消点赞幂等、`HasLikedBatch` 边界语义、`ErrNotFound` 行为与同时间戳游标分页稳定性。
 
 ### 4.2 下一步计划（Next Steps）
 
-1. 补充 MySQL 评论仓储的集成测试（覆盖事务冲突与分页游标稳定性）。
-2. 将当前 AutoMigrate 策略升级为显式 migration 文件，便于生产可控发布。
-3. 为 MySQL 评论仓储补充 `HasLikedBatch` 路径的性能与边界测试（空集合/无效 commentId/大页数据）。
+1. 为 MySQL 评论仓储补充并发冲突场景的强化测试（多协程点赞竞争与事务锁行为观测）。
+2. 将当前 AutoMigrate 策略逐步收敛到显式 migration 执行路径，并在 CI/CD 接入迁移门禁。
+3. 为 `HasLikedBatch` 增加大页性能基线测试（高评论量场景下的耗时与查询次数监控）。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
@@ -122,3 +123,4 @@
 2. author 信息依赖用户仓储查询；历史脏数据场景下会降级为占位昵称。
 3. 当前已接入 MySQL 持久化，主要风险转为索引与迁移策略治理（需补齐显式 migration）。
 4. 批量 `likedByMe` 依赖 `comment_likes(comment_id,user_id)` 索引性能，需持续关注大数据量分页场景。
+5. MySQL 集成测试依赖 `MYSQL_DSN` 环境；未配置时会跳过相关测试，需在 CI 中显式提供数据库环境避免覆盖盲区。
