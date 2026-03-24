@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	model "CampusCanteenRank/server/internal/model/ranking"
@@ -61,9 +62,10 @@ func (r *MySQLRankingRepository) ListRankings(ctx context.Context, options Ranki
 		Where("updated_at >= ?", windowStart).
 		Group("stall_id")
 
+	hotScoreExpr := "(s.avg_rating * 0.75 + LOG10(COALESCE(ca.review_count, 0) + 1) * 0.25)"
 	sortExpr := "s.avg_rating"
 	if options.Filter.Sort == "hot_desc" {
-		sortExpr = "(s.avg_rating * 0.75 + LOG10(COALESCE(ca.review_count, 0) + 1) * 0.25)"
+		sortExpr = hotScoreExpr
 	}
 
 	base := r.db.WithContext(ctx).
@@ -71,7 +73,7 @@ func (r *MySQLRankingRepository) ListRankings(ctx context.Context, options Ranki
 		Select(
 			"s.id AS stall_id, s.name AS stall_name, s.canteen_id, COALESCE(c.name, '') AS canteen_name, "+
 				"s.food_type_id, COALESCE(ft.name, '') AS food_type_name, s.avg_rating, s.rating_count, COALESCE(ca.review_count, 0) AS review_count, "+
-				sortExpr+" AS hot_score, "+
+				hotScoreExpr+" AS hot_score, "+
 				"GREATEST(COALESCE(ca.last_comment_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(ra.last_rating_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(s.created_at, TIMESTAMP('1970-01-01 00:00:01'))) AS last_active_at",
 		).
 		Joins("LEFT JOIN canteens AS c ON c.id = s.canteen_id").
@@ -90,17 +92,16 @@ func (r *MySQLRankingRepository) ListRankings(ctx context.Context, options Ranki
 		base = base.Where("s.food_type_id = ?", options.Filter.FoodTypeID)
 	}
 
+	lastActiveExpr := "GREATEST(COALESCE(ca.last_comment_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(ra.last_rating_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(s.created_at, TIMESTAMP('1970-01-01 00:00:01')))"
 	if options.Cursor != nil {
-		base = base.Where(
-			"("+sortExpr+" < ?) OR ("+sortExpr+" = ? AND ("+
-				"GREATEST(COALESCE(ca.last_comment_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(ra.last_rating_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(s.created_at, TIMESTAMP('1970-01-01 00:00:01'))) < ? OR ("+
-				"GREATEST(COALESCE(ca.last_comment_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(ra.last_rating_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(s.created_at, TIMESTAMP('1970-01-01 00:00:01'))) = ? AND s.id < ?)))",
-			options.Cursor.SortValue,
-			options.Cursor.SortValue,
-			options.Cursor.LastActiveAt,
-			options.Cursor.LastActiveAt,
-			options.Cursor.StallID,
+		cursorWhere := fmt.Sprintf(
+			"(%s < ?) OR (%s = ? AND (%s < ? OR (%s = ? AND s.id < ?)))",
+			sortExpr,
+			sortExpr,
+			lastActiveExpr,
+			lastActiveExpr,
 		)
+		base = base.Where(cursorWhere, options.Cursor.SortValue, options.Cursor.SortValue, options.Cursor.LastActiveAt, options.Cursor.LastActiveAt, options.Cursor.StallID)
 	}
 
 	var records []mysqlRankingRecord
