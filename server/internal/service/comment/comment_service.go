@@ -16,13 +16,22 @@ import (
 )
 
 type CommentService struct {
-	comments commentrepo.CommentRepository
-	stalls   stallrepo.StallRepository
-	users    authrepo.UserRepository
+	comments           commentrepo.CommentRepository
+	stalls             stallrepo.StallRepository
+	users              authrepo.UserRepository
+	rankingInvalidator rankingCacheInvalidator
 }
 
-func NewCommentService(comments commentrepo.CommentRepository, stalls stallrepo.StallRepository, users authrepo.UserRepository) *CommentService {
-	return &CommentService{comments: comments, stalls: stalls, users: users}
+type rankingCacheInvalidator interface {
+	InvalidateRankingCache(ctx context.Context) error
+}
+
+func NewCommentService(comments commentrepo.CommentRepository, stalls stallrepo.StallRepository, users authrepo.UserRepository, invalidator ...rankingCacheInvalidator) *CommentService {
+	var selected rankingCacheInvalidator
+	if len(invalidator) > 0 {
+		selected = invalidator[0]
+	}
+	return &CommentService{comments: comments, stalls: stalls, users: users, rankingInvalidator: selected}
 }
 
 func (s *CommentService) CreateComment(ctx context.Context, userID int64, stallID int64, req dto.CreateCommentRequest) (*dto.CreateCommentData, error) {
@@ -124,6 +133,9 @@ func (s *CommentService) CreateComment(ctx context.Context, userID int64, stallI
 	}
 
 	item := toCommentItem(*createdComment, author.ID, author.Nickname, false)
+	if s.rankingInvalidator != nil {
+		_ = s.rankingInvalidator.InvalidateRankingCache(ctx)
+	}
 	return &dto.CreateCommentData{Comment: item}, nil
 }
 

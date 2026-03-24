@@ -20,11 +20,20 @@ type stallListCursor struct {
 }
 
 type StallService struct {
-	repo repository.StallRepository
+	repo               repository.StallRepository
+	rankingInvalidator rankingCacheInvalidator
 }
 
-func NewStallService(repo repository.StallRepository) *StallService {
-	return &StallService{repo: repo}
+type rankingCacheInvalidator interface {
+	InvalidateRankingCache(ctx context.Context) error
+}
+
+func NewStallService(repo repository.StallRepository, invalidator ...rankingCacheInvalidator) *StallService {
+	var selected rankingCacheInvalidator
+	if len(invalidator) > 0 {
+		selected = invalidator[0]
+	}
+	return &StallService{repo: repo, rankingInvalidator: selected}
 }
 
 func (s *StallService) ListCanteens(ctx context.Context) (*dto.CanteenListData, error) {
@@ -126,6 +135,9 @@ func (s *StallService) UpsertUserRating(ctx context.Context, userID int64, stall
 			return nil, errpkg.New(errpkg.CodeNotFound, "stall not found", nil)
 		}
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	if s.rankingInvalidator != nil {
+		_ = s.rankingInvalidator.InvalidateRankingCache(ctx)
 	}
 	return &dto.UpsertRatingData{
 		StallID:     updated.ID,

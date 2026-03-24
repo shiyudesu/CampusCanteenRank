@@ -16,6 +16,7 @@ import (
 	meservice "CampusCanteenRank/server/internal/service/me"
 	rankingservice "CampusCanteenRank/server/internal/service/ranking"
 	stallservice "CampusCanteenRank/server/internal/service/stall"
+	"context"
 	"github.com/gin-gonic/gin"
 	"time"
 )
@@ -75,10 +76,19 @@ func NewEngineWithAllRepositories(
 		rankingRepository = rankingrepo.NewMemoryRankingRepository()
 	}
 
+	var rankingInvalidator interface {
+		InvalidateRankingCache(ctx context.Context) error
+	}
+	if invalidator, ok := rankingRepository.(interface {
+		InvalidateRankingCache(ctx context.Context) error
+	}); ok {
+		rankingInvalidator = invalidator
+	}
+
 	authService := authservice.NewAuthService(userRepo, refreshRepo, secret)
 	authHandler := authcontroller.NewAuthHandler(authService)
-	stallHandler := stallcontroller.NewStallHandler(stallservice.NewStallService(stallRepository))
-	commentHandler := commentcontroller.NewCommentHandler(commentservice.NewCommentService(commentRepository, stallRepository, userRepo))
+	stallHandler := stallcontroller.NewStallHandler(stallservice.NewStallService(stallRepository, rankingInvalidator))
+	commentHandler := commentcontroller.NewCommentHandler(commentservice.NewCommentService(commentRepository, stallRepository, userRepo, rankingInvalidator))
 	meHandler := mecontroller.NewMeHandler(meservice.NewMeService(commentRepository, stallRepository, userRepo))
 	rankingHandler := rankingcontroller.NewRankingHandler(rankingservice.NewRankingService(rankingRepository))
 

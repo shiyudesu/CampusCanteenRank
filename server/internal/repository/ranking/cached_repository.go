@@ -13,6 +13,7 @@ import (
 type rankingCacheStore interface {
 	Get(ctx context.Context, key string) (string, error)
 	Set(ctx context.Context, key string, value string, ttl time.Duration) error
+	DeleteByPrefix(ctx context.Context, prefix string) error
 }
 
 type redisRankingCacheStore struct {
@@ -25,6 +26,26 @@ func (s *redisRankingCacheStore) Get(ctx context.Context, key string) (string, e
 
 func (s *redisRankingCacheStore) Set(ctx context.Context, key string, value string, ttl time.Duration) error {
 	return s.client.Set(ctx, key, value, ttl).Err()
+}
+
+func (s *redisRankingCacheStore) DeleteByPrefix(ctx context.Context, prefix string) error {
+	var cursor uint64
+	for {
+		keys, nextCursor, err := s.client.Scan(ctx, cursor, prefix+"*", 100).Result()
+		if err != nil {
+			return err
+		}
+		if len(keys) > 0 {
+			if err := s.client.Del(ctx, keys...).Err(); err != nil {
+				return err
+			}
+		}
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+	return nil
 }
 
 type cachedRankingRepository struct {
@@ -117,4 +138,8 @@ func (r *cachedRankingRepository) cacheKey(options RankingListOptions) string {
 		lastActive,
 		cursorStallID,
 	)
+}
+
+func (r *cachedRankingRepository) InvalidateRankingCache(ctx context.Context) error {
+	return r.cache.DeleteByPrefix(ctx, r.prefix+":")
 }

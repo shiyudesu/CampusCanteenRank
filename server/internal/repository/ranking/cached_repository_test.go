@@ -14,6 +14,7 @@ type fakeRankingStore struct {
 	err  error
 	sets int
 	gets int
+	dels int
 }
 
 func (s *fakeRankingStore) Get(_ context.Context, key string) (string, error) {
@@ -34,6 +35,19 @@ func (s *fakeRankingStore) Set(_ context.Context, key string, value string, _ ti
 		s.data = map[string]string{}
 	}
 	s.data[key] = value
+	return nil
+}
+
+func (s *fakeRankingStore) DeleteByPrefix(_ context.Context, prefix string) error {
+	s.dels++
+	if s.data == nil {
+		return nil
+	}
+	for key := range s.data {
+		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
+			delete(s.data, key)
+		}
+	}
 	return nil
 }
 
@@ -95,5 +109,32 @@ func TestCachedRankingRepositoryCachesResult(t *testing.T) {
 	}
 	if store.gets < 2 {
 		t.Fatalf("cache get should be called for both reads")
+	}
+}
+
+func TestCachedRankingRepositoryInvalidatePrefix(t *testing.T) {
+	store := &fakeRankingStore{data: map[string]string{
+		"ranking:test:scope=global": "x",
+		"other:key":                 "y",
+	}}
+	base := &fakeRankingRepo{items: []model.RankingItem{{StallID: 101, StallName: "A"}}}
+	repo := newCachedRankingRepositoryWithStore(base, store, "ranking:test", time.Minute)
+
+	cachedRepo, ok := repo.(*cachedRankingRepository)
+	if !ok {
+		t.Fatalf("repo should be *cachedRankingRepository")
+	}
+
+	if err := cachedRepo.InvalidateRankingCache(context.Background()); err != nil {
+		t.Fatalf("invalidate ranking cache failed: %v", err)
+	}
+	if store.dels != 1 {
+		t.Fatalf("delete by prefix calls = %d, want 1", store.dels)
+	}
+	if _, exists := store.data["ranking:test:scope=global"]; exists {
+		t.Fatalf("ranking cache key should be deleted")
+	}
+	if _, exists := store.data["other:key"]; !exists {
+		t.Fatalf("non-matching key should remain")
 	}
 }
