@@ -19,6 +19,7 @@ type Claims struct {
 	UserID    int64  `json:"uid"`
 	TokenType string `json:"typ"`
 	JTI       string `json:"jti,omitempty"`
+	DeviceID  string `json:"did,omitempty"`
 	jwt.RegisteredClaims
 }
 

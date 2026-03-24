@@ -86,6 +86,7 @@ func NewEngineWithAllRepositories(
 	authGroup.POST("/register", authHandler.Register)
 	authGroup.POST("/login", authHandler.Login)
 	authGroup.POST("/refresh", authHandler.Refresh)
+	authGroup.POST("/logout", authHandler.Logout)
 	v1.GET("/canteens", stallHandler.ListCanteens)
 	v1.GET("/stalls", stallHandler.ListStalls)
 	v1.GET("/stalls/:stallId", middleware.OptionalAuth(secret), stallHandler.GetStallDetail)

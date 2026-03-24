@@ -9,10 +9,12 @@ type RegisterRequest struct {
 type LoginRequest struct {
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=8,max=128"`
+	DeviceID string `json:"deviceId" binding:"omitempty,min=1,max=128"`
 }
 
 type RefreshRequest struct {
 	RefreshToken string `json:"refreshToken" binding:"required"`
+	DeviceID     string `json:"deviceId" binding:"omitempty,min=1,max=128"`
 }
 
 type RegisterData struct {

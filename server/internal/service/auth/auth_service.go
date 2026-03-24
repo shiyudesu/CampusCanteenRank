@@ -77,6 +77,11 @@ func (s *AuthService) Register(ctx context.Context, req dto.RegisterRequest) (in
 }
 
 func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.LoginData, error) {
+	deviceID := strings.TrimSpace(req.DeviceID)
+	if deviceID == "" {
+		deviceID = "default"
+	}
+
 	user, err := s.users.GetByEmail(ctx, req.Email)
 	if err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
@@ -93,12 +98,12 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Log
 	if err != nil {
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
 	}
-	refreshToken, jti, refreshExpireAt, err := s.buildRefreshToken(user.ID)
+	refreshToken, jti, refreshExpireAt, err := s.buildRefreshToken(user.ID, deviceID)
 	if err != nil {
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
 	}
 
-	if err := s.refreshTokens.Save(ctx, repository.RefreshTokenRecord{UserID: user.ID, TokenJTI: jti, ExpiredAt: refreshExpireAt}); err != nil {
+	if err := s.refreshTokens.Save(ctx, repository.RefreshTokenRecord{UserID: user.ID, TokenJTI: jti, DeviceID: deviceID, ExpiredAt: refreshExpireAt}); err != nil {
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
 	}
 
@@ -114,6 +119,8 @@ func (s *AuthService) Login(ctx context.Context, req dto.LoginRequest) (*dto.Log
 }
 
 func (s *AuthService) Refresh(ctx context.Context, req dto.RefreshRequest) (*dto.RefreshData, error) {
+	deviceID := strings.TrimSpace(req.DeviceID)
+
 	claims, err := authpkg.ParseToken(s.secret, req.RefreshToken)
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
@@ -124,8 +131,14 @@ func (s *AuthService) Refresh(ctx context.Context, req dto.RefreshRequest) (*dto
 	if claims.TokenType != authpkg.TokenTypeRefresh || claims.UserID <= 0 || claims.JTI == "" {
 		return nil, errpkg.New(errpkg.CodeUnauthorized, "invalid token", nil)
 	}
+	if deviceID != "" && claims.DeviceID != "" && deviceID != claims.DeviceID {
+		return nil, errpkg.New(errpkg.CodeUnauthorized, "invalid token", nil)
+	}
+	if claims.DeviceID == "" {
+		claims.DeviceID = "default"
+	}
 
-	if err := s.refreshTokens.Consume(ctx, claims.UserID, claims.JTI); err != nil {
+	if err := s.refreshTokens.Consume(ctx, claims.UserID, claims.JTI, claims.DeviceID); err != nil {
 		if errors.Is(err, repository.ErrNotFound) {
 			return nil, errpkg.New(errpkg.CodeUnauthorized, "invalid token", nil)
 		}
@@ -136,11 +149,11 @@ func (s *AuthService) Refresh(ctx context.Context, req dto.RefreshRequest) (*dto
 	if err != nil {
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
 	}
-	newRefreshToken, newJTI, refreshExpireAt, err := s.buildRefreshToken(claims.UserID)
+	newRefreshToken, newJTI, refreshExpireAt, err := s.buildRefreshToken(claims.UserID, claims.DeviceID)
 	if err != nil {
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
 	}
-	if err := s.refreshTokens.Save(ctx, repository.RefreshTokenRecord{UserID: claims.UserID, TokenJTI: newJTI, ExpiredAt: refreshExpireAt}); err != nil {
+	if err := s.refreshTokens.Save(ctx, repository.RefreshTokenRecord{UserID: claims.UserID, TokenJTI: newJTI, DeviceID: claims.DeviceID, ExpiredAt: refreshExpireAt}); err != nil {
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
 	}
 
@@ -167,7 +180,7 @@ func (s *AuthService) buildAccessToken(userID int64) (string, int64, error) {
 	return token, int64(s.accessTTL.Seconds()), nil
 }
 
-func (s *AuthService) buildRefreshToken(userID int64) (string, string, time.Time, error) {
+func (s *AuthService) buildRefreshToken(userID int64, deviceID string) (string, string, time.Time, error) {
 	now := s.nowFunc().UTC()
 	exp := now.Add(s.refreshTTL)
 	jti := s.idGen()
@@ -175,6 +188,7 @@ func (s *AuthService) buildRefreshToken(userID int64) (string, string, time.Time
 		UserID:    userID,
 		TokenType: authpkg.TokenTypeRefresh,
 		JTI:       jti,
+		DeviceID:  deviceID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   fmt.Sprintf("%d", userID),
 			Issuer:    s.issuer,
@@ -188,6 +202,33 @@ func (s *AuthService) buildRefreshToken(userID int64) (string, string, time.Time
 		return "", "", time.Time{}, err
 	}
 	return token, jti, exp, nil
+}
+
+func (s *AuthService) Logout(ctx context.Context, req dto.RefreshRequest) error {
+	claims, err := authpkg.ParseToken(s.secret, req.RefreshToken)
+	if err != nil {
+		if errors.Is(err, jwt.ErrTokenExpired) {
+			return errpkg.New(errpkg.CodeUnauthorized, "token expired", nil)
+		}
+		return errpkg.New(errpkg.CodeUnauthorized, "invalid token", nil)
+	}
+	if claims.TokenType != authpkg.TokenTypeRefresh || claims.UserID <= 0 || claims.JTI == "" {
+		return errpkg.New(errpkg.CodeUnauthorized, "invalid token", nil)
+	}
+	deviceID := claims.DeviceID
+	if deviceID == "" {
+		deviceID = strings.TrimSpace(req.DeviceID)
+	}
+	if deviceID == "" {
+		deviceID = "default"
+	}
+	if err := s.refreshTokens.Consume(ctx, claims.UserID, claims.JTI, deviceID); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			return errpkg.New(errpkg.CodeUnauthorized, "invalid token", nil)
+		}
+		return errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	return nil
 }
 
 func defaultID() string {

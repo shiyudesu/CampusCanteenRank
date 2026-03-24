@@ -29,11 +29,11 @@ func (r *RedisRefreshTokenRepository) Save(ctx context.Context, record RefreshTo
 	if ttl <= 0 {
 		return ErrNotFound
 	}
-	return r.client.Set(ctx, r.key(record.UserID, record.TokenJTI), "1", ttl).Err()
+	return r.client.Set(ctx, r.key(record.UserID, record.TokenJTI, record.DeviceID), "1", ttl).Err()
 }
 
-func (r *RedisRefreshTokenRepository) Consume(ctx context.Context, userID int64, tokenJTI string) error {
-	deleted, err := r.client.Del(ctx, r.key(userID, tokenJTI)).Result()
+func (r *RedisRefreshTokenRepository) Consume(ctx context.Context, userID int64, tokenJTI string, deviceID string) error {
+	deleted, err := r.client.Del(ctx, r.key(userID, tokenJTI, deviceID)).Result()
 	if err != nil {
 		return err
 	}
@@ -43,6 +43,6 @@ func (r *RedisRefreshTokenRepository) Consume(ctx context.Context, userID int64,
 	return nil
 }
 
-func (r *RedisRefreshTokenRepository) key(userID int64, tokenJTI string) string {
-	return fmt.Sprintf("%s:%d:%s", r.prefix, userID, tokenJTI)
+func (r *RedisRefreshTokenRepository) key(userID int64, tokenJTI string, deviceID string) string {
+	return fmt.Sprintf("%s:%d:%s:%s", r.prefix, userID, deviceID, tokenJTI)
 }

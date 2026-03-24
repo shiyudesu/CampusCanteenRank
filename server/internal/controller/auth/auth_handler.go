@@ -61,6 +61,19 @@ func (h *AuthHandler) Refresh(c *gin.Context) {
 	response.OK(c, data)
 }
 
+func (h *AuthHandler) Logout(c *gin.Context) {
+	var req dto.RefreshRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		return
+	}
+	if err := h.service.Logout(c.Request.Context(), req); err != nil {
+		h.writeError(c, err)
+		return
+	}
+	response.OK(c, struct{}{})
+}
+
 func (h *AuthHandler) writeError(c *gin.Context, err error) {
 	var appErr *errpkg.AppError
 	if errors.As(err, &appErr) {

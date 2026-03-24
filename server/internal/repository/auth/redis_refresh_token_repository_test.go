@@ -29,6 +29,7 @@ func TestRedisRefreshTokenRepositorySaveExpiredRecord(t *testing.T) {
 	err = repo.Save(context.Background(), RefreshTokenRecord{
 		UserID:    1,
 		TokenJTI:  "jti",
+		DeviceID:  "device-a",
 		ExpiredAt: time.Now().UTC().Add(-time.Second),
 	})
 	if !errors.Is(err, ErrNotFound) {
@@ -43,7 +44,7 @@ func TestRedisRefreshTokenRepositoryDefaultPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new repo failed: %v", err)
 	}
-	if got := repo.key(12, "abc"); got != "auth:refresh:12:abc" {
+	if got := repo.key(12, "abc", "device-a"); got != "auth:refresh:12:device-a:abc" {
 		t.Fatalf("unexpected default key: %s", got)
 	}
 }

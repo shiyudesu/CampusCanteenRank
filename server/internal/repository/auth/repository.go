@@ -22,12 +22,13 @@ type UserRepository interface {
 type RefreshTokenRecord struct {
 	UserID    int64
 	TokenJTI  string
+	DeviceID  string
 	ExpiredAt time.Time
 }
 
 type RefreshTokenRepository interface {
 	Save(ctx context.Context, record RefreshTokenRecord) error
-	Consume(ctx context.Context, userID int64, tokenJTI string) error
+	Consume(ctx context.Context, userID int64, tokenJTI string, deviceID string) error
 }
 
 type MemoryUserRepository struct {
@@ -96,15 +97,15 @@ func NewMemoryRefreshTokenRepository() *MemoryRefreshTokenRepository {
 func (r *MemoryRefreshTokenRepository) Save(_ context.Context, record RefreshTokenRecord) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := recordKey(record.UserID, record.TokenJTI)
+	key := recordKey(record.UserID, record.TokenJTI, record.DeviceID)
 	r.active[key] = record
 	return nil
 }
 
-func (r *MemoryRefreshTokenRepository) Consume(_ context.Context, userID int64, tokenJTI string) error {
+func (r *MemoryRefreshTokenRepository) Consume(_ context.Context, userID int64, tokenJTI string, deviceID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	key := recordKey(userID, tokenJTI)
+	key := recordKey(userID, tokenJTI, deviceID)
 	record, ok := r.active[key]
 	if !ok {
 		return ErrNotFound
@@ -117,8 +118,8 @@ func (r *MemoryRefreshTokenRepository) Consume(_ context.Context, userID int64, 
 	return nil
 }
 
-func recordKey(userID int64, tokenJTI string) string {
-	return fmtInt(userID) + ":" + tokenJTI
+func recordKey(userID int64, tokenJTI string, deviceID string) string {
+	return fmtInt(userID) + ":" + deviceID + ":" + tokenJTI
 }
 
 func fmtInt(v int64) string {
