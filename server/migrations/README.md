@@ -4,8 +4,10 @@
 
 ## 当前状态
 
-- 现阶段仓库中的 MySQL 仓储在初始化时仍会触发必要表结构初始化。
-- 为了满足发布可控性，建议逐步将表结构变更迁移到本目录中的版本化 SQL 文件。
+- 已提供首个基线迁移：
+  - `0001_init_schema.up.sql`
+  - `0001_init_schema.down.sql`
+- 现阶段仓库中的 MySQL 仓储仍保留 `AutoMigrate` 兜底能力，后续可在 CI/CD 完成迁移接入后逐步移除。
 
 ## 迁移文件命名建议
 
@@ -19,3 +21,13 @@
 1. 新增一组 `up/down` SQL 文件并通过本地 MySQL 演练。
 2. 在 PR 描述中写明回滚路径（对应 `down` 文件）。
 3. 合并后将 CI/CD 接入迁移执行步骤，再去除运行时自动建表依赖。
+
+## 0001 基线覆盖范围
+
+- `users`
+- `canteens`
+- `food_types`
+- `stalls`
+- `ratings`
+- `comments`
+- `comment_likes`
