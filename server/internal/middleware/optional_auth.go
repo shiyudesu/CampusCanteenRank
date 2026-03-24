@@ -1,12 +1,9 @@
 package middleware
 
 import (
-	"net/http"
 	"strings"
 
 	authpkg "CampusCanteenRank/server/internal/pkg/auth"
-	errpkg "CampusCanteenRank/server/internal/pkg/errors"
-	"CampusCanteenRank/server/internal/pkg/response"
 	"github.com/gin-gonic/gin"
 )
 
@@ -19,14 +16,12 @@ func OptionalAuth(secret string) gin.HandlerFunc {
 		}
 		parts := strings.SplitN(authHeader, " ", 2)
 		if len(parts) != 2 || parts[0] != "Bearer" {
-			response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
-			c.Abort()
+			c.Next()
 			return
 		}
 		claims, err := authpkg.ParseToken(secret, parts[1])
 		if err != nil || claims.TokenType != authpkg.TokenTypeAccess {
-			response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
-			c.Abort()
+			c.Next()
 			return
 		}
 		c.Set("userId", claims.UserID)
