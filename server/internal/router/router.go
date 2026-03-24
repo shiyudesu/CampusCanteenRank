@@ -56,6 +56,7 @@ func NewEngineWithAllRepositories(
 	rankingRepository rankingrepo.RankingRepository,
 ) *gin.Engine {
 	r := gin.New()
+	registerSwaggerRoutes(r)
 	r.Use(middleware.TraceID())
 	r.Use(middleware.RequestLogger())
 	r.Use(middleware.Recover())

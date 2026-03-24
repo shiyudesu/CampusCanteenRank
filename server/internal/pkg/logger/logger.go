@@ -84,7 +84,6 @@ func InitFromEnv() {
 	}
 	SetSensitiveFields(fields)
 }
-
 func L() *zap.Logger {
 	mu.RLock()
 	defer mu.RUnlock()

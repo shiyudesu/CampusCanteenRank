@@ -3,10 +3,9 @@ package main
 import (
 	"context"
 	"log"
-	"os"
-	"strconv"
 	"time"
 
+	"CampusCanteenRank/server/internal/config"
 	"CampusCanteenRank/server/internal/migration"
 	logpkg "CampusCanteenRank/server/internal/pkg/logger"
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
@@ -19,26 +18,26 @@ import (
 	"gorm.io/gorm"
 )
 
-const defaultRedisDB = 0
-
 func main() {
-	logpkg.InitFromEnv()
-
-	secret := os.Getenv("JWT_SECRET")
-	if secret == "" {
-		secret = "dev-only-secret-change-me-please-1234567890"
+	cfg, err := config.Load()
+	if err != nil {
+		log.Fatalf("load runtime config failed: %v", err)
 	}
+	if err := logpkg.Init(cfg.LogLevel); err != nil {
+		log.Fatalf("init logger failed: %v", err)
+	}
+	logpkg.SetSensitiveFields(cfg.LogSensitiveFields)
 
-	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories()
+	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories(cfg)
 	defer cleanup()
 
-	r := router.NewEngineWithAllRepositories(secret, userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository)
-	if err := r.Run(":8080"); err != nil {
+	r := router.NewEngineWithAllRepositories(cfg.JWTSecret, userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository)
+	if err := r.Run(":" + cfg.ServerPort); err != nil {
 		log.Fatalf("server startup failed: %v", err)
 	}
 }
 
-func buildRepositories() (
+func buildRepositories(cfg config.RuntimeConfig) (
 	authrepo.UserRepository,
 	authrepo.RefreshTokenRepository,
 	stallrepo.StallRepository,
@@ -46,8 +45,8 @@ func buildRepositories() (
 	rankingrepo.RankingRepository,
 	func(),
 ) {
-	mysqlDSN := os.Getenv("MYSQL_DSN")
-	redisAddr := os.Getenv("REDIS_ADDR")
+	mysqlDSN := cfg.MySQLDSN
+	redisAddr := cfg.RedisAddr
 	if mysqlDSN == "" || redisAddr == "" {
 		log.Println("repository mode: memory (MYSQL_DSN or REDIS_ADDR missing)")
 		return memoryRepositories()
@@ -87,20 +86,10 @@ func buildRepositories() (
 	}
 	var rankingRepository rankingrepo.RankingRepository = mysqlRankingRepository
 
-	redisDB := defaultRedisDB
-	if rawDB := os.Getenv("REDIS_DB"); rawDB != "" {
-		parsed, parseErr := strconv.Atoi(rawDB)
-		if parseErr != nil {
-			log.Printf("invalid REDIS_DB=%q, use default=%d", rawDB, defaultRedisDB)
-		} else {
-			redisDB = parsed
-		}
-	}
-
 	redisClient := redis.NewClient(&redis.Options{
 		Addr:     redisAddr,
-		Password: os.Getenv("REDIS_PASSWORD"),
-		DB:       redisDB,
+		Password: cfg.RedisPassword,
+		DB:       cfg.RedisDB,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -110,7 +99,7 @@ func buildRepositories() (
 		return memoryRepositories()
 	}
 
-	refreshRepo, err := authrepo.NewRedisRefreshTokenRepository(redisClient, os.Getenv("REDIS_REFRESH_PREFIX"))
+	refreshRepo, err := authrepo.NewRedisRefreshTokenRepository(redisClient, cfg.RedisRefreshPrefix)
 	if err != nil {
 		log.Printf("redis refresh repository init failed, fallback to memory: %v", err)
 		_ = redisClient.Close()
@@ -120,7 +109,7 @@ func buildRepositories() (
 	rankingRepository = rankingrepo.NewCachedRankingRepository(
 		rankingRepository,
 		redisClient,
-		os.Getenv("REDIS_RANKING_PREFIX"),
+		cfg.RedisRankingPrefix,
 		30*time.Second,
 	)
 

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -1552,6 +1553,26 @@ func requestJSON(t *testing.T, handler http.Handler, method string, path string,
 	rr := httptest.NewRecorder()
 	handler.ServeHTTP(rr, req)
 	return rr
+}
+
+func TestSwaggerRoutes(t *testing.T) {
+	engine := NewEngine("test-secret-12345678901234567890")
+
+	swaggerResp := requestNoBody(t, engine, http.MethodGet, "/swagger")
+	if swaggerResp.Code != http.StatusOK {
+		t.Fatalf("swagger page status = %d, want 200", swaggerResp.Code)
+	}
+	if !strings.Contains(swaggerResp.Body.String(), "SwaggerUIBundle") {
+		t.Fatalf("swagger page should contain SwaggerUIBundle script")
+	}
+
+	docResp := requestNoBody(t, engine, http.MethodGet, "/swagger/doc.json")
+	if docResp.Code != http.StatusOK {
+		t.Fatalf("swagger doc status = %d, want 200", docResp.Code)
+	}
+	if !strings.Contains(docResp.Body.String(), "\"openapi\": \"3.0.3\"") {
+		t.Fatalf("swagger doc should contain openapi version")
+	}
 }
 
 func requestNoBody(t *testing.T, handler http.Handler, method string, path string) *httptest.ResponseRecorder {

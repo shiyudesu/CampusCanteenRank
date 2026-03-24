@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"CampusCanteenRank/server/internal/config"
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
 	commentrepo "CampusCanteenRank/server/internal/repository/comment"
 	rankingrepo "CampusCanteenRank/server/internal/repository/ranking"
@@ -10,10 +11,9 @@ import (
 )
 
 func TestBuildRepositoriesFallsBackToMemoryWhenEnvMissing(t *testing.T) {
-	t.Setenv("MYSQL_DSN", "")
-	t.Setenv("REDIS_ADDR", "")
+	cfg := config.RuntimeConfig{MySQLDSN: "", RedisAddr: ""}
 
-	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories()
+	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories(cfg)
 	t.Cleanup(cleanup)
 
 	if _, ok := userRepo.(*authrepo.MemoryUserRepository); !ok {
@@ -34,10 +34,9 @@ func TestBuildRepositoriesFallsBackToMemoryWhenEnvMissing(t *testing.T) {
 }
 
 func TestBuildRepositoriesFallsBackToMemoryWhenRedisMissing(t *testing.T) {
-	t.Setenv("MYSQL_DSN", "root:pass@tcp(127.0.0.1:3306)/canteen")
-	t.Setenv("REDIS_ADDR", "")
+	cfg := config.RuntimeConfig{MySQLDSN: "root:pass@tcp(127.0.0.1:3306)/canteen", RedisAddr: ""}
 
-	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories()
+	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories(cfg)
 	t.Cleanup(cleanup)
 
 	if _, ok := userRepo.(*authrepo.MemoryUserRepository); !ok {

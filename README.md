@@ -58,6 +58,19 @@
 - `REDIS_REFRESH_PREFIX`：刷新令牌键前缀
 - `LOG_LEVEL`：日志等级（默认 `info`）
 
+## 后端配置管理与 API 文档入口（新增）
+
+- 后端已接入 Viper 配置加载（`server/internal/config/config.go`）：
+  - 优先级：环境变量 > 配置文件 > 默认值
+  - 可选配置文件路径：
+    - `server/configs/app.yaml`
+    - `configs/app.yaml`
+- 新增运行端口配置：
+  - `SERVER_PORT`（默认 `8080`）
+- Swagger 文档入口（运行后端后可访问）：
+  - `GET /swagger`（Swagger UI）
+  - `GET /swagger/doc.json`（OpenAPI JSON）
+
 ## 关键流程（摘要）
 
 - 模块化开发：每个模块完成后必须先测试，测试通过后再推送到 GitHub

@@ -1,0 +1,102 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "CampusCanteenRank API",
+    "version": "v1",
+    "description": "Backend API baseline for CampusCanteenRank."
+  },
+  "servers": [
+    {
+      "url": "/api/v1"
+    }
+  ],
+  "paths": {
+    "/auth/register": {
+      "post": {
+        "summary": "Register"
+      }
+    },
+    "/auth/login": {
+      "post": {
+        "summary": "Login"
+      }
+    },
+    "/auth/refresh": {
+      "post": {
+        "summary": "Refresh token"
+      }
+    },
+    "/auth/logout": {
+      "post": {
+        "summary": "Logout"
+      }
+    },
+    "/canteens": {
+      "get": {
+        "summary": "List canteens"
+      }
+    },
+    "/stalls": {
+      "get": {
+        "summary": "List stalls"
+      }
+    },
+    "/stalls/{stallId}": {
+      "get": {
+        "summary": "Get stall detail",
+        "parameters": [
+          {
+            "name": "stallId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ]
+      }
+    },
+    "/stalls/{stallId}/ratings": {
+      "post": {
+        "summary": "Upsert user rating"
+      }
+    },
+    "/stalls/{stallId}/comments": {
+      "get": {
+        "summary": "List top level comments"
+      },
+      "post": {
+        "summary": "Create comment"
+      }
+    },
+    "/comments/{rootCommentId}/replies": {
+      "get": {
+        "summary": "List replies"
+      }
+    },
+    "/comments/{commentId}/like": {
+      "post": {
+        "summary": "Like comment"
+      },
+      "delete": {
+        "summary": "Unlike comment"
+      }
+    },
+    "/rankings": {
+      "get": {
+        "summary": "List rankings"
+      }
+    },
+    "/me/comments": {
+      "get": {
+        "summary": "List my comments"
+      }
+    },
+    "/me/ratings": {
+      "get": {
+        "summary": "List my ratings"
+      }
+    }
+  }
+}

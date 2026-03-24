@@ -322,3 +322,29 @@ LIMIT :limit
 - 评论楼中楼 + 点赞链路全量可用
 - 核心接口具备测试覆盖
 - 与 `api-spec.md` 字段和错误码完全对齐
+
+---
+
+## 15. 工程化能力补齐记录（新增）
+
+### 15.1 配置管理（Viper）
+
+- 已新增 `server/internal/config/config.go`，统一加载运行时配置。
+- 配置优先级：环境变量 > 配置文件 > 默认值。
+- 支持配置文件：
+  - `server/configs/app.yaml`
+  - `configs/app.yaml`
+- 提供示例配置：`server/configs/app.example.yaml`。
+
+### 15.2 Swagger 文档入口
+
+- 后端已提供文档访问入口：
+  - `GET /swagger`
+  - `GET /swagger/doc.json`
+
+### 15.3 GitHub CI 门禁
+
+- 已新增 `.github/workflows/backend-ci.yml`，在 push/pr 时自动执行：
+  1. `go test ./server/...`
+  2. `go vet ./server/...`
+  3. `go build ./server/...`

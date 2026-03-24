@@ -1,0 +1,10 @@
+SERVER_PORT: "8080"
+JWT_SECRET: "dev-only-secret-change-me-please-1234567890"
+MYSQL_DSN: ""
+REDIS_ADDR: ""
+REDIS_PASSWORD: ""
+REDIS_DB: 0
+REDIS_REFRESH_PREFIX: "auth:refresh"
+REDIS_RANKING_PREFIX: "ranking:v1"
+LOG_LEVEL: "info"
+LOG_SENSITIVE_FIELDS: "authorization,cookie,set-cookie,password,token,refresh_token,refreshToken"
