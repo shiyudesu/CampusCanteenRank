@@ -102,16 +102,18 @@
 9. 回复列表接口已完成：支持 `GET /api/v1/comments/{rootCommentId}/replies`，返回 `items/nextCursor/hasMore`。
 10. 评论仓储已新增 MySQL 实现：覆盖创建、查询、分页、点赞幂等与 `likedByMe` 查询能力。
 11. 点赞写路径已切换为事务实现（点赞记录与 `like_count` 原子更新）。
+12. 评论列表与回复列表的 `likedByMe` 已升级为批量查询，减少逐条查询带来的 N+1 开销。
 
 ### 4.2 下一步计划（Next Steps）
 
 1. 补充 MySQL 评论仓储的集成测试（覆盖事务冲突与分页游标稳定性）。
 2. 将当前 AutoMigrate 策略升级为显式 migration 文件，便于生产可控发布。
+3. 为 MySQL 评论仓储补充 `HasLikedBatch` 路径的性能与边界测试（空集合/无效 commentId/大页数据）。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
 1. 将“创建回复 + 根评论 replyCount 递增”升级为事务边界，避免跨步骤不一致。
-2. 增加 `likedByMe` 的真实态计算（当前固定返回 false）。
+2. `likedByMe` 真实态与批量查询已落地；下一步优化为按场景裁剪字段读取与缓存策略。
 3. 为评论 service/repository 增加细粒度单元测试，降低对路由测试依赖。
 
 ### 4.4 风险与注意事项（Risks / Watchouts）
@@ -119,3 +121,4 @@
 1. 当前默认仍保留内存回退策略（MySQL 初始化失败会回退），生产环境需配合健康检查与启动门禁。
 2. author 信息依赖用户仓储查询；历史脏数据场景下会降级为占位昵称。
 3. 当前已接入 MySQL 持久化，主要风险转为索引与迁移策略治理（需补齐显式 migration）。
+4. 批量 `likedByMe` 依赖 `comment_likes(comment_id,user_id)` 索引性能，需持续关注大数据量分页场景。

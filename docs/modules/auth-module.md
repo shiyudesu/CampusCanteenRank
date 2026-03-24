@@ -9,15 +9,17 @@
 当前仓库原本只有规范文档，没有可运行代码。基于 `agents.md` / `backend-dev.md` / `api-spec.md`，本次先落地了后端第一个 P0 模块：**鉴权模块 auth**，提供以下最小可运行能力：
 
 1. `POST /api/v1/auth/register`：注册
-2. `POST /api/v1/auth/login`：登录并签发 accessToken + refreshToken
-3. `POST /api/v1/auth/refresh`：刷新 token（含 refresh token 轮换）
+2. `POST /api/v1/auth/login`：登录并签发 accessToken + refreshToken（支持可选 `deviceId`）
+3. `POST /api/v1/auth/refresh`：刷新 token（含 refresh token 轮换，支持可选 `deviceId`）
+4. `POST /api/v1/auth/logout`：注销当前 refresh token（一次性消费）
 
 并且满足：
 
 - 统一响应格式：`{code, message, data}`
 - 对齐错误码语义：`40001/40101/40901/50000`
-- JWT 安全基础：限定 `HS256`，区分 access/refresh token
+- JWT 安全基础：限定 `HS256`，区分 access/refresh token，并支持设备维度 claim
 - refresh token 防重放：使用后即失效（一次性）
+- refresh token 设备维度隔离：`userId + deviceId + jti`
 - 基础测试闭环：核心流程和错误路径已覆盖
 
 ---
@@ -34,7 +36,7 @@
 - `server/internal/router/router.go`
   - 装配内存仓储（用户 + refresh token）
   - 装配 `AuthService` 与 `AuthHandler`
-  - 注册路由：`/api/v1/auth/register|login|refresh`
+  - 注册路由：`/api/v1/auth/register|login|refresh|logout`
 
 ### 2.2 auth 领域
 
@@ -63,6 +65,7 @@
 
 - `server/internal/controller/auth/auth_handler.go`
   - HTTP handler：参数绑定、调用 service、错误到 HTTP 映射
+  - 新增 `Logout` handler（消费 refresh token）
 
 ### 2.3 通用包
 
@@ -186,9 +189,11 @@ type Envelope struct {
 
 2. `LoginRequest`
    - `email/password` 校验同上
+   - `deviceId` 可选（1~128）
 
 3. `RefreshRequest`
    - `refreshToken` 必填
+   - `deviceId` 可选（1~128）
 
 为什么使用 `binding` 标签：
 
@@ -216,6 +221,7 @@ type Envelope struct {
 - `uid`：用户 ID
 - `typ`：token 类型（`access` / `refresh`）
 - `jti`：refresh token 唯一 ID（用于轮换和防重放）
+- `did`：设备标识（deviceId，支持设备维度 refresh token 隔离）
 - 内嵌 `jwt.RegisteredClaims`：`sub/iss/iat/exp`
 
 ### `SignToken`
@@ -252,6 +258,8 @@ type Envelope struct {
    - `Save`
    - `Consume`
 
+当前 refresh token 持久化键语义已升级为 `userId + deviceId + jti`，用于设备维度会话隔离。
+
 为什么先定义接口：
 
 - 业务层只依赖抽象，不直接绑死存储实现
@@ -265,7 +273,7 @@ type Envelope struct {
 
 ### `MemoryRefreshTokenRepository`
 
-- `map[userID:jti]record`
+- `map[userID:deviceId:jti]record`
 - `Consume` 行为：
   - 不存在 -> `ErrNotFound`
   - 已过期 -> 删除并返回 `ErrNotFound`
@@ -328,10 +336,11 @@ type Envelope struct {
 
 1. 按邮箱查询用户，不存在 -> `40101`
 2. 比对密码哈希，不匹配 -> `40101`
-3. 签发 access token（短期）
-4. 签发 refresh token（长期 + jti）
-5. 保存 refresh token 记录（用于轮换）
-6. 返回登录数据
+3. 解析可选 `deviceId`（为空时回退默认设备标识）
+4. 签发 access token（短期）
+5. 签发 refresh token（长期 + jti + deviceId）
+6. 保存 refresh token 记录（用于轮换）
+7. 返回登录数据
 
 为什么凭证错误用 401 而不是 404：
 
@@ -343,10 +352,11 @@ type Envelope struct {
 
 1. 解析 refresh token
 2. 校验类型必须是 `refresh` 且 `uid/jti` 有效
-3. `Consume` 旧 token 记录（保证一次性）
-4. 签发新 access + 新 refresh
-5. 保存新 refresh 记录
-6. 返回新 token 对
+3. 如请求携带 `deviceId` 且与 token claim 不一致，返回 `40101`
+4. `Consume` 旧 token 记录（保证一次性，按 `uid + did + jti`）
+5. 签发新 access + 新 refresh
+6. 保存新 refresh 记录
+7. 返回新 token 对
 
 关键价值：
 
@@ -355,8 +365,17 @@ type Envelope struct {
 ### `buildAccessToken` / `buildRefreshToken`
 
 - 两者都带 `iss/iat/exp`
-- refresh 额外带 `jti`
+- refresh 额外带 `jti` 与 `did`
 - `ExpiresIn` 返回 access TTL 秒数，方便前端倒计时与刷新策略
+
+### `Logout`
+
+流程：
+
+1. 解析 refresh token
+2. 校验 token 类型与核心 claims
+3. 消费当前 refresh token 仓储记录（按设备维度）
+4. 返回成功（后续复用同 token 会返回 `40101`）
 
 ---
 
@@ -364,11 +383,12 @@ type Envelope struct {
 
 文件：`server/internal/controller/auth/auth_handler.go`
 
-### 三个入口方法
+### 四个入口方法
 
 1. `Register`
 2. `Login`
 3. `Refresh`
+4. `Logout`
 
 统一步骤：
 
@@ -482,7 +502,7 @@ type Envelope struct {
 ## 5.1 对齐点
 
 - `api-spec.md`：
-  - `POST /auth/register|login|refresh`
+  - `POST /auth/register|login|refresh|logout`
   - 响应 envelope 结构
   - 认证体系（Bearer + JWT）
 
@@ -499,7 +519,7 @@ type Envelope struct {
 
 1. 目前仓储为内存实现，不是 MySQL/Redis
 2. 未接入 Viper/Zap/TraceID（后续基础设施模块可补）
-3. refresh 接口请求体在 `api-spec.md` 未明确，本实现采用 `{"refreshToken":"..."}`
+3. 历史版本中 refresh 请求体未明确；当前规范已更新为 `refreshToken + 可选 deviceId`
 
 这些都是为了先把模块闭环跑通，后续再逐步替换持久化实现。
 
@@ -579,12 +599,13 @@ go run ./cmd/api
 
 ## 9. 本模块完成定义（当前状态）
 
-- [x] 已实现 register/login/refresh 三个接口
+- [x] 已实现 register/login/refresh/logout 四个接口
 - [x] 已实现统一响应结构
 - [x] 已实现错误码映射
 - [x] 已实现 access/refresh token 签发与解析
 - [x] 已实现 refresh token 一次性消费（轮换）
 - [x] 已完成 auth 仓储持久化升级（MySQL 用户仓储 + Redis refresh token 仓储）
+- [x] 已完成 refresh token 设备维度隔离（`uid + did + jti`）
 - [x] 已支持环境变量驱动的持久化/内存自动回退装配
 - [x] 已在 `api-spec.md` 补全 refresh 请求/响应示例
 - [x] 已提供模块级测试并通过
@@ -605,6 +626,7 @@ go run ./cmd/api
    - `POST /api/v1/auth/register`
    - `POST /api/v1/auth/login`
    - `POST /api/v1/auth/refresh`
+   - `POST /api/v1/auth/logout`
 3. 统一响应封装已接入：`{code,message,data}`。
 4. 错误码语义已接入并与 API 规范对齐（核心：40001/40101/40901/50000）。
 5. JWT 签发与解析完成，access/refresh token 类型分离。
@@ -625,7 +647,13 @@ go run ./cmd/api
 13. 中间件治理第二阶段已完成（Zap + 脱敏）：
    - 请求日志升级为 Zap 结构化日志，字段包含 `trace_id/request_id/user_id/method/path/status/latency/client_ip`。
    - 增加日志配置能力：支持 `LOG_LEVEL` 调整日志级别。
-   - 增加敏感字段脱敏：支持 `LOG_SENSITIVE_FIELDS` 自定义脱敏字段，默认覆盖 `authorization/cookie/password/token/refreshToken`。
+    - 增加敏感字段脱敏：支持 `LOG_SENSITIVE_FIELDS` 自定义脱敏字段，默认覆盖 `authorization/cookie/password/token/refreshToken`。
+14. Auth 设备维度能力已落地：
+    - `login/refresh` 请求支持可选 `deviceId`
+    - refresh token claims 新增 `did`
+    - refresh token 仓储键升级为 `uid + did + jti`
+15. 登出接口已落地：
+    - `POST /api/v1/auth/logout` 可消费当前 refresh token，防止后续复用。
 
 ### 10.2 下一步计划（Next Steps）
 
@@ -633,12 +661,15 @@ go run ./cmd/api
    - 推荐顺序：`stall list/detail` -> `rating` -> `comment` -> `like` -> `ranking`。
 2. **补充仓储层测试**
    - 增加 MySQL/Redis 仓储集成测试（可通过 docker compose 或 testcontainers）。
+3. **补充 Auth 新增能力测试**
+   - 增加 router 级 `logout` 用例（注销后 refresh 失效）
+   - 增加设备维度 `deviceId` 边界用例（mismatch / default fallback）
 
 ### 10.3 待优化事项（Optimization Backlog）
 
 1. 密码策略增强（复杂度、黑名单词、历史密码策略可扩展）。
 2. 登录安全增强（IP + 账号维度限流、失败次数惩罚）。
-3. refresh token 增加设备维度管理（deviceId/sessionId）。
+3. refresh token 设备维度（deviceId）已落地，下一步补齐 session 级会话治理（会话列表/逐设备踢下线）。
 4. service 层补充更细颗粒单测（当前仍以路由测试为主）。
 5. 错误信息国际化或统一错误消息字典。
 6. 配置管理升级（Viper + `.env.dev/.env.test/.env.prod`）。
@@ -649,6 +680,7 @@ go run ./cmd/api
 1. 持久化模式依赖 MySQL/Redis 可用性；当前为“失败即回退内存”的可用性优先策略，生产建议引入启动失败策略与健康检查门禁。
 2. 当前尚未接入审计日志与指标上报，不适合直接作为生产安全基线。
 3. 仓储层尚未加入真实 MySQL/Redis 集成测试，需要在 CI 中补齐。
+4. 目前 `deviceId` 允许可选并有默认回退策略，若后续改为强制上报，需要同步前端发布策略与兼容迁移。
 
 ### 10.5 下一会话接手指引（Handoff Quick Start）
 

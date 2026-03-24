@@ -90,9 +90,14 @@
 ```json
 {
   "email": "user@example.com",
-  "password": "Pass@123456"
+  "password": "Pass@123456",
+  "deviceId": "ios-iphone15-pro"
 }
 ```
+
+说明：
+
+- `deviceId` 为可选字段；不传时服务端按默认设备标识处理
 
 响应：
 
@@ -120,9 +125,14 @@
 
 ```json
 {
-  "refreshToken": "xxx"
+  "refreshToken": "xxx",
+  "deviceId": "ios-iphone15-pro"
 }
 ```
+
+说明：
+
+- `deviceId` 为可选字段；若传入且与 token 绑定设备不一致，返回 `40101`
 
 响应：
 
@@ -135,6 +145,34 @@
     "refreshToken": "xxx",
     "expiresIn": 7200
   }
+}
+```
+
+## 3.4 登出（注销当前 refresh token）
+
+`POST /auth/logout`
+
+请求：
+
+```json
+{
+  "refreshToken": "xxx",
+  "deviceId": "ios-iphone15-pro"
+}
+```
+
+说明：
+
+- `refreshToken` 必填
+- `deviceId` 可选；用于设备维度校验（服务端最终以 token claim 中设备标识为准）
+
+响应：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {}
 }
 ```
 
