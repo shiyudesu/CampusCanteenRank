@@ -17,6 +17,7 @@ import (
 	rankingservice "CampusCanteenRank/server/internal/service/ranking"
 	stallservice "CampusCanteenRank/server/internal/service/stall"
 	"github.com/gin-gonic/gin"
+	"time"
 )
 
 func NewEngine(secret string) *gin.Engine {
@@ -84,18 +85,18 @@ func NewEngineWithAllRepositories(
 	v1 := r.Group("/api/v1")
 	authGroup := v1.Group("/auth")
 	authGroup.POST("/register", authHandler.Register)
-	authGroup.POST("/login", authHandler.Login)
+	authGroup.POST("/login", middleware.RateLimitByClient("auth_login", 20, time.Minute), authHandler.Login)
 	authGroup.POST("/refresh", authHandler.Refresh)
 	authGroup.POST("/logout", authHandler.Logout)
 	v1.GET("/canteens", stallHandler.ListCanteens)
 	v1.GET("/stalls", stallHandler.ListStalls)
 	v1.GET("/stalls/:stallId", middleware.OptionalAuth(secret), stallHandler.GetStallDetail)
-	v1.POST("/stalls/:stallId/ratings", middleware.Auth(secret), stallHandler.UpsertUserRating)
-	v1.POST("/stalls/:stallId/comments", middleware.Auth(secret), commentHandler.CreateComment)
+	v1.POST("/stalls/:stallId/ratings", middleware.RateLimitByClient("stall_rating_upsert", 60, time.Minute), middleware.Auth(secret), stallHandler.UpsertUserRating)
+	v1.POST("/stalls/:stallId/comments", middleware.RateLimitByClient("comment_create", 60, time.Minute), middleware.Auth(secret), commentHandler.CreateComment)
 	v1.GET("/stalls/:stallId/comments", middleware.OptionalAuth(secret), commentHandler.ListTopLevelComments)
 	v1.GET("/comments/:rootCommentId/replies", middleware.OptionalAuth(secret), commentHandler.ListReplies)
-	v1.POST("/comments/:commentId/like", middleware.Auth(secret), commentHandler.LikeComment)
-	v1.DELETE("/comments/:commentId/like", middleware.Auth(secret), commentHandler.UnlikeComment)
+	v1.POST("/comments/:commentId/like", middleware.RateLimitByClient("comment_like", 120, time.Minute), middleware.Auth(secret), commentHandler.LikeComment)
+	v1.DELETE("/comments/:commentId/like", middleware.RateLimitByClient("comment_unlike", 120, time.Minute), middleware.Auth(secret), commentHandler.UnlikeComment)
 	v1.GET("/rankings", rankingHandler.ListRankings)
 	v1.GET("/me/comments", middleware.Auth(secret), meHandler.ListMyComments)
 	v1.GET("/me/ratings", middleware.Auth(secret), meHandler.ListMyRatings)

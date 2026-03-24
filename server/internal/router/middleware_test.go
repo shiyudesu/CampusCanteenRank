@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"CampusCanteenRank/server/internal/middleware"
 	logpkg "CampusCanteenRank/server/internal/pkg/logger"
@@ -15,6 +16,39 @@ import (
 	"go.uber.org/zap/zapcore"
 	"go.uber.org/zap/zaptest/observer"
 )
+
+func TestRateLimitByClientBlocksAfterLimit(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.RateLimitByClient("test_limit", 1, time.Minute))
+	r.GET("/limited", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
+
+	firstReq := httptest.NewRequest(http.MethodGet, "/limited", nil)
+	firstReq.RemoteAddr = "198.51.100.10:1234"
+	firstResp := httptest.NewRecorder()
+	r.ServeHTTP(firstResp, firstReq)
+	if firstResp.Code != http.StatusNoContent {
+		t.Fatalf("first status = %d, want %d", firstResp.Code, http.StatusNoContent)
+	}
+
+	secondReq := httptest.NewRequest(http.MethodGet, "/limited", nil)
+	secondReq.RemoteAddr = "198.51.100.10:1234"
+	secondResp := httptest.NewRecorder()
+	r.ServeHTTP(secondResp, secondReq)
+	if secondResp.Code != http.StatusTooManyRequests {
+		t.Fatalf("second status = %d, want %d", secondResp.Code, http.StatusTooManyRequests)
+	}
+
+	env := decodeEnvelope(t, secondResp.Body.Bytes())
+	if got := asInt(t, env["code"]); got != 42901 {
+		t.Fatalf("code = %d, want 42901", got)
+	}
+	if got, ok := env["message"].(string); !ok || got != "too many requests" {
+		t.Fatalf("message = %v, want too many requests", env["message"])
+	}
+}
 
 func TestTraceIDMiddlewareGeneratesHeader(t *testing.T) {
 	gin.SetMode(gin.TestMode)
