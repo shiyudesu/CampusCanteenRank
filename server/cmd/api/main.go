@@ -75,11 +75,12 @@ func buildRepositories() (
 		return memoryRepositories()
 	}
 
-	rankingRepository, err := rankingrepo.NewMySQLRankingRepository(db)
+	mysqlRankingRepository, err := rankingrepo.NewMySQLRankingRepository(db)
 	if err != nil {
 		log.Printf("mysql ranking repository init failed, fallback to memory: %v", err)
 		return memoryRepositories()
 	}
+	var rankingRepository rankingrepo.RankingRepository = mysqlRankingRepository
 
 	redisDB := defaultRedisDB
 	if rawDB := os.Getenv("REDIS_DB"); rawDB != "" {
@@ -110,6 +111,13 @@ func buildRepositories() (
 		_ = redisClient.Close()
 		return memoryRepositories()
 	}
+
+	rankingRepository = rankingrepo.NewCachedRankingRepository(
+		rankingRepository,
+		redisClient,
+		os.Getenv("REDIS_RANKING_PREFIX"),
+		30*time.Second,
+	)
 
 	log.Println("repository mode: persistent (MySQL + Redis)")
 	return userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, func() {

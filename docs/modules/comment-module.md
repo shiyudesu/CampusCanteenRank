@@ -104,18 +104,19 @@
 11. 点赞写路径已切换为事务实现（点赞记录与 `like_count` 原子更新）。
 12. 评论列表与回复列表的 `likedByMe` 已升级为批量查询，减少逐条查询带来的 N+1 开销。
 13. 新增 MySQL 仓储集成测试文件（环境变量 `MYSQL_DSN` 可用时执行）：覆盖点赞/取消点赞幂等、`HasLikedBatch` 边界语义、`ErrNotFound` 行为与同时间戳游标分页稳定性。
+14. 已将“回复创建 + 根评论 `replyCount` 递增”改为仓储层原子写入：新增 `CreateReplyAndIncrementRoot`，内存/ MySQL 仓储均已接入，服务层回复路径切换为单次原子调用。
 
 ### 4.2 下一步计划（Next Steps）
 
 1. 为 MySQL 评论仓储补充并发冲突场景的强化测试（多协程点赞竞争与事务锁行为观测）。
 2. 将当前 AutoMigrate 策略逐步收敛到显式 migration 执行路径，并在 CI/CD 接入迁移门禁。
 3. 为 `HasLikedBatch` 增加大页性能基线测试（高评论量场景下的耗时与查询次数监控）。
+4. 为回复创建原子事务补充 MySQL 集成级回归用例（覆盖 root 不存在与并发回帖场景）。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
-1. 将“创建回复 + 根评论 replyCount 递增”升级为事务边界，避免跨步骤不一致。
-2. `likedByMe` 真实态与批量查询已落地；下一步优化为按场景裁剪字段读取与缓存策略。
-3. 为评论 service/repository 增加细粒度单元测试，降低对路由测试依赖。
+1. `likedByMe` 真实态与批量查询已落地；下一步优化为按场景裁剪字段读取与缓存策略。
+2. 为评论 service/repository 增加细粒度单元测试，降低对路由测试依赖。
 
 ### 4.4 风险与注意事项（Risks / Watchouts）
 
