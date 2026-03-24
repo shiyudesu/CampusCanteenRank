@@ -31,9 +31,6 @@ func NewMySQLUserRepository(db *gorm.DB) (*MySQLUserRepository, error) {
 	if db == nil {
 		return nil, errors.New("nil mysql db")
 	}
-	if err := db.AutoMigrate(&mysqlUserRecord{}); err != nil {
-		return nil, err
-	}
 	return &MySQLUserRepository{db: db}, nil
 }
 

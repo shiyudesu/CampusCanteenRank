@@ -48,9 +48,6 @@ func NewMySQLCommentRepository(db *gorm.DB) (*MySQLCommentRepository, error) {
 	if db == nil {
 		return nil, errors.New("nil mysql db")
 	}
-	if err := db.AutoMigrate(&mysqlCommentRecord{}, &mysqlCommentLikeRecord{}); err != nil {
-		return nil, err
-	}
 	return &MySQLCommentRepository{db: db}, nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"CampusCanteenRank/server/internal/migration"
 	logpkg "CampusCanteenRank/server/internal/pkg/logger"
 	authrepo "CampusCanteenRank/server/internal/repository/auth"
 	commentrepo "CampusCanteenRank/server/internal/repository/comment"
@@ -55,6 +56,10 @@ func buildRepositories() (
 	db, err := gorm.Open(mysql.Open(mysqlDSN), &gorm.Config{})
 	if err != nil {
 		log.Printf("mysql init failed, fallback to memory: %v", err)
+		return memoryRepositories()
+	}
+	if err := migration.ApplySQLMigrations(db); err != nil {
+		log.Printf("sql migrations apply failed, fallback to memory: %v", err)
 		return memoryRepositories()
 	}
 	userRepo, err := authrepo.NewMySQLUserRepository(db)

@@ -58,9 +58,6 @@ func NewMySQLStallRepository(db *gorm.DB) (*MySQLStallRepository, error) {
 	if db == nil {
 		return nil, errors.New("nil mysql db")
 	}
-	if err := db.AutoMigrate(&mysqlCanteenRecord{}, &mysqlStallRecord{}, &mysqlUserRatingRecord{}); err != nil {
-		return nil, err
-	}
 	return &MySQLStallRepository{db: db}, nil
 }
 
