@@ -97,3 +97,15 @@ func TestRankingServiceInvalidParams(t *testing.T) {
 		})
 	}
 }
+
+func TestRankingServiceTrimmedParams(t *testing.T) {
+	svc := NewRankingService(repository.NewMemoryRankingRepository())
+
+	data, err := svc.ListRankings(context.Background(), "  global  ", 0, 0, 30, "  hot_desc  ", 2, "")
+	if err != nil {
+		t.Fatalf("list rankings with trimmed params failed: %v", err)
+	}
+	if len(data.Items) == 0 {
+		t.Fatalf("items should not be empty")
+	}
+}

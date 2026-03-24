@@ -38,6 +38,9 @@ func (s *RankingService) ListRankings(
 	limit int,
 	cursorText string,
 ) (*dto.RankingListData, error) {
+	scope = strings.TrimSpace(scope)
+	sort = strings.TrimSpace(sort)
+
 	if scope == "" {
 		scope = "global"
 	}
@@ -59,7 +62,7 @@ func (s *RankingService) ListRankings(
 	if sort == "" {
 		sort = "score_desc"
 	}
-	if strings.TrimSpace(sort) != "score_desc" && strings.TrimSpace(sort) != "hot_desc" {
+	if sort != "score_desc" && sort != "hot_desc" {
 		return nil, errpkg.New(errpkg.CodeBadRequest, "invalid params", nil)
 	}
 	if limit <= 0 {
