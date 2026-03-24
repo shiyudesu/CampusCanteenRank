@@ -26,6 +26,7 @@ type CommentListOptions struct {
 
 type CommentRepository interface {
 	Create(ctx context.Context, comment *model.Comment) error
+	CreateReplyAndIncrementRoot(ctx context.Context, reply *model.Comment, rootID int64) error
 	GetByID(ctx context.Context, commentID int64) (*model.Comment, error)
 	IncrementRootReplyCount(ctx context.Context, rootID int64) error
 	Like(ctx context.Context, userID int64, commentID int64) (int64, error)
@@ -107,6 +108,34 @@ func (r *MemoryCommentRepository) Create(_ context.Context, comment *model.Comme
 	comment.ID = clone.ID
 	comment.CreatedAt = clone.CreatedAt
 	comment.Status = clone.Status
+	return nil
+}
+
+func (r *MemoryCommentRepository) CreateReplyAndIncrementRoot(_ context.Context, reply *model.Comment, rootID int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	root, ok := r.byID[rootID]
+	if !ok || root.Status != 1 {
+		return ErrNotFound
+	}
+	if root.RootID != 0 || root.ParentID != 0 {
+		return ErrNotFound
+	}
+
+	r.nextID++
+	clone := *reply
+	clone.ID = r.nextID
+	clone.CreatedAt = time.Now().UTC()
+	clone.Status = 1
+	r.byID[clone.ID] = clone
+
+	root.ReplyCount++
+	r.byID[rootID] = root
+
+	reply.ID = clone.ID
+	reply.CreatedAt = clone.CreatedAt
+	reply.Status = clone.Status
 	return nil
 }
 

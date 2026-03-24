@@ -101,17 +101,17 @@ func (s *CommentService) CreateComment(ctx context.Context, userID int64, stallI
 		}
 	}
 
-	if createErr := s.comments.Create(ctx, newComment); createErr != nil {
-		return nil, errpkg.New(errpkg.CodeInternal, "internal error", createErr)
-	}
-
 	if isReply {
-		incErr := s.comments.IncrementRootReplyCount(ctx, req.RootID)
-		if incErr != nil {
-			if errors.Is(incErr, commentrepo.ErrNotFound) {
+		createErr := s.comments.CreateReplyAndIncrementRoot(ctx, newComment, req.RootID)
+		if createErr != nil {
+			if errors.Is(createErr, commentrepo.ErrNotFound) {
 				return nil, errpkg.New(errpkg.CodeNotFound, "comment not found", nil)
 			}
-			return nil, errpkg.New(errpkg.CodeInternal, "internal error", incErr)
+			return nil, errpkg.New(errpkg.CodeInternal, "internal error", createErr)
+		}
+	} else {
+		if createErr := s.comments.Create(ctx, newComment); createErr != nil {
+			return nil, errpkg.New(errpkg.CodeInternal, "internal error", createErr)
 		}
 	}
 

@@ -75,6 +75,46 @@ func (r *MySQLCommentRepository) Create(ctx context.Context, comment *model.Comm
 	return nil
 }
 
+func (r *MySQLCommentRepository) CreateReplyAndIncrementRoot(ctx context.Context, reply *model.Comment, rootID int64) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		var rootRec mysqlCommentRecord
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ? AND status = ? AND root_id = 0 AND parent_id = 0", rootID, 1).
+			First(&rootRec).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return ErrNotFound
+			}
+			return err
+		}
+
+		rec := mysqlCommentRecord{
+			StallID:       reply.StallID,
+			UserID:        reply.UserID,
+			RootID:        reply.RootID,
+			ParentID:      reply.ParentID,
+			ReplyToUserID: reply.ReplyToUserID,
+			Content:       reply.Content,
+			LikeCount:     reply.LikeCount,
+			ReplyCount:    reply.ReplyCount,
+			Status:        reply.Status,
+		}
+		if err := tx.Create(&rec).Error; err != nil {
+			return err
+		}
+
+		if err := tx.Model(&mysqlCommentRecord{}).
+			Where("id = ?", rootID).
+			Update("reply_count", gorm.Expr("reply_count + 1")).Error; err != nil {
+			return err
+		}
+
+		reply.ID = rec.ID
+		reply.CreatedAt = rec.CreatedAt
+		reply.Status = rec.Status
+		return nil
+	})
+}
+
 func (r *MySQLCommentRepository) GetByID(ctx context.Context, commentID int64) (*model.Comment, error) {
 	var rec mysqlCommentRecord
 	err := r.db.WithContext(ctx).Where("id = ? AND status = ?", commentID, 1).First(&rec).Error

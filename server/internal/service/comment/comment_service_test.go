@@ -280,3 +280,69 @@ func TestCommentServiceListRepliesErrors(t *testing.T) {
 		t.Fatalf("error code = %d, want %d", appErr.Code, errpkg.CodeBadRequest)
 	}
 }
+
+func TestCommentServiceCreateReplyIncrementsRootReplyCount(t *testing.T) {
+	users := authrepo.NewMemoryUserRepository()
+	if err := users.Create(context.Background(), &authmodel.User{
+		Nickname:     "Alice",
+		Email:        "alice-reply@example.com",
+		PasswordHash: "hashed",
+		Status:       1,
+	}); err != nil {
+		t.Fatalf("create seed user failed: %v", err)
+	}
+
+	service := NewCommentService(
+		commentrepo.NewMemoryCommentRepository(),
+		stallrepo.NewMemoryStallRepository(),
+		users,
+	)
+
+	ctx := context.Background()
+	before, err := service.ListTopLevelComments(ctx, 0, 101, 20, "", "latest")
+	if err != nil {
+		t.Fatalf("list top-level before create failed: %v", err)
+	}
+	var rootBefore dto.CommentItem
+	found := false
+	for _, item := range before.Items {
+		if item.ID == 9001 {
+			rootBefore = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("seed root comment 9001 should exist")
+	}
+
+	_, err = service.CreateComment(ctx, 1001, 101, dto.CreateCommentRequest{
+		Content:       "reply for count",
+		RootID:        9001,
+		ParentID:      9001,
+		ReplyToUserID: 1001,
+	})
+	if err != nil {
+		t.Fatalf("create reply failed: %v", err)
+	}
+
+	after, err := service.ListTopLevelComments(ctx, 0, 101, 20, "", "latest")
+	if err != nil {
+		t.Fatalf("list top-level after create failed: %v", err)
+	}
+	var rootAfter dto.CommentItem
+	found = false
+	for _, item := range after.Items {
+		if item.ID == 9001 {
+			rootAfter = item
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("seed root comment 9001 should still exist")
+	}
+	if rootAfter.ReplyCount != rootBefore.ReplyCount+1 {
+		t.Fatalf("replyCount = %d, want %d", rootAfter.ReplyCount, rootBefore.ReplyCount+1)
+	}
+}
