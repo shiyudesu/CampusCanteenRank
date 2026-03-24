@@ -50,7 +50,7 @@
 ### 2.5 启动装配兼容
 
 - `server/cmd/api/main.go` 的仓储构造函数已扩展 ranking 仓储返回值
-- 当前 ranking 先使用内存仓储实现，保持与现有持久化回退策略兼容
+- 持久化模式下优先装配 MySQL ranking 仓储；当 MySQL/Redis 初始化失败或配置缺失时回退内存仓储，保持可用性优先
 
 ---
 
@@ -94,12 +94,14 @@
 9. 排行查询已接入 Redis 缓存包装仓储：持久化模式下默认按参数维度缓存 30 秒，Redis 不可用时自动降级为直连仓储。
 10. 排行缓存失效策略已扩展到写路径：`comment like/unlike` 成功后也会触发 `InvalidateRankingCache`，与评分写入、评论发布行为保持一致。
 11. 启动流程已接入 `server/internal/migration`：MySQL 连接成功后先执行 `server/migrations/*.up.sql`，再初始化仓储，进一步收敛运行时自动建表依赖。
+12. `ranking` MySQL 集成测试已补齐：新增真实 SQL 路径下的筛选（`scope/scopeId/foodTypeId`）、`hot_desc` 排序、`days` 时间窗与跨页游标稳定性覆盖。
+13. 修复 MySQL ranking 仓储的 `hot_score` 字段语义：无论 `score_desc` 还是 `hot_desc`，返回体中的 `hotScore` 均统一按热度公式计算，避免字段值受排序模式影响。
 
 ### 4.2 下一步计划（Next Steps）
 
-1. 为 MySQL ranking 仓储补充集成测试（含真实 SQL 路径的筛选、排序与跨页稳定性）。
-2. 增加游标浮点边界测试（同分值/高并发分页）并验证跨页稳定性。
-3. 将当前“全量前缀失效”策略演进为更细粒度 key 失效，降低高写入场景缓存抖动。
+1. 增加游标浮点边界测试（同分值/高并发分页）并验证跨页稳定性。
+2. 将当前“全量前缀失效”策略演进为更细粒度 key 失效，降低高写入场景缓存抖动。
+3. 评估 `hot_score` 聚合表达式的可观测性（慢查询与执行计划），为后续索引与查询优化提供基线数据。
 
 ### 4.3 待优化事项（Optimization Backlog）
 
