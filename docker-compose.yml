@@ -44,6 +44,7 @@ services:
       REDIS_DB: ${REDIS_DB:-0}
       REDIS_PASSWORD: ${REDIS_PASSWORD:-}
       REDIS_REFRESH_PREFIX: ${REDIS_REFRESH_PREFIX:-auth:refresh:}
+      REDIS_RANKING_PREFIX: ${REDIS_RANKING_PREFIX:-ranking:list:}
     ports:
       - "${API_PORT:-8080}:8080"
     depends_on:

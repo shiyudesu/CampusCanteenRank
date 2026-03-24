@@ -28,6 +28,20 @@
 - 当 `MYSQL_DSN` 未配置或数据库不可达时，测试会按设计自动 `skip`。
 - 建议在 CI 中提供独立测试库 DSN，确保集成测试持续执行。
 
+## 推荐执行顺序（本地/CI）
+
+1. 启动依赖：`docker compose --env-file .env.example up -d mysql redis`
+2. 使用目标测试库执行 `0001_init_schema.up.sql`
+3. 设置环境变量并运行后端测试：
+
+```bash
+MYSQL_DSN="ccr:ccr@tcp(127.0.0.1:3306)/canteen_rank?charset=utf8mb4&parseTime=True&loc=Local" \
+REDIS_ADDR="127.0.0.1:6379" \
+go test ./server/...
+```
+
+4. 需要回滚演练时执行 `0001_init_schema.down.sql`。
+
 ## 0001 基线覆盖范围
 
 - `users`
