@@ -13,6 +13,15 @@ import (
 	stallrepo "CampusCanteenRank/server/internal/repository/stall"
 )
 
+type fakeRankingInvalidator struct {
+	calls int
+}
+
+func (f *fakeRankingInvalidator) InvalidateRankingCache(_ context.Context) error {
+	f.calls++
+	return nil
+}
+
 func TestCommentServiceLikeUnlike(t *testing.T) {
 	service := NewCommentService(
 		commentrepo.NewMemoryCommentRepository(),
@@ -58,6 +67,28 @@ func TestCommentServiceLikeUnlike(t *testing.T) {
 	}
 	if unliked.LikeCount != 12 {
 		t.Fatalf("repeat unlike count = %d, want 12", unliked.LikeCount)
+	}
+}
+
+func TestCommentServiceLikeUnlikeTriggersRankingInvalidation(t *testing.T) {
+	invalidator := &fakeRankingInvalidator{}
+	service := NewCommentService(
+		commentrepo.NewMemoryCommentRepository(),
+		stallrepo.NewMemoryStallRepository(),
+		authrepo.NewMemoryUserRepository(),
+		invalidator,
+	)
+
+	ctx := context.Background()
+	if _, err := service.LikeComment(ctx, 1001, 9001); err != nil {
+		t.Fatalf("like comment failed: %v", err)
+	}
+	if _, err := service.UnlikeComment(ctx, 1001, 9001); err != nil {
+		t.Fatalf("unlike comment failed: %v", err)
+	}
+
+	if invalidator.calls != 2 {
+		t.Fatalf("ranking invalidation calls = %d, want 2", invalidator.calls)
 	}
 }
 

@@ -376,6 +376,9 @@ func (s *CommentService) LikeComment(ctx context.Context, userID int64, commentI
 		}
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
 	}
+	if s.rankingInvalidator != nil {
+		_ = s.rankingInvalidator.InvalidateRankingCache(ctx)
+	}
 	return &dto.ToggleLikeData{Liked: true, LikeCount: likeCount}, nil
 }
 
@@ -389,6 +392,9 @@ func (s *CommentService) UnlikeComment(ctx context.Context, userID int64, commen
 			return nil, errpkg.New(errpkg.CodeNotFound, "comment not found", nil)
 		}
 		return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
+	}
+	if s.rankingInvalidator != nil {
+		_ = s.rankingInvalidator.InvalidateRankingCache(ctx)
 	}
 	return &dto.ToggleLikeData{Liked: false, LikeCount: likeCount}, nil
 }
