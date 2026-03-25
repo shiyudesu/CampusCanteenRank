@@ -7,12 +7,27 @@ import (
 	"time"
 
 	model "CampusCanteenRank/server/internal/model/ranking"
+
 	"gorm.io/gorm"
 )
 
 type MySQLRankingRepository struct {
 	db *gorm.DB
 }
+
+type rankingAggregates struct {
+	commentAgg *gorm.DB
+	ratingAgg  *gorm.DB
+}
+
+type rankingSortStrategy struct {
+	sortExpr string
+}
+
+const (
+	rankingHotScoreExpr   = "(s.avg_rating * 0.75 + LOG10(COALESCE(ca.review_count, 0) + 1) * 0.25)"
+	rankingLastActiveExpr = "GREATEST(COALESCE(ca.last_comment_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(ra.last_rating_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(s.created_at, TIMESTAMP('1970-01-01 00:00:01')))"
+)
 
 type mysqlRankingRecord struct {
 	StallID      int64     `gorm:"column:stall_id"`
@@ -40,75 +55,111 @@ func (r *MySQLRankingRepository) ListRankings(ctx context.Context, options Ranki
 		return nil, false, ErrInvalidScope
 	}
 
-	limit := options.Limit
+	limit := normalizeRankingLimit(options.Limit)
+	windowStart := resolveRankingWindowStart(options.Filter.Days)
+	strategy := resolveRankingSortStrategy(options.Filter.Sort)
+	aggregates := r.buildRankingAggregates(ctx, windowStart)
+
+	base := r.buildRankingBaseQuery(ctx, aggregates)
+	base = applyRankingFilters(base, options.Filter)
+	base = applyRankingCursor(base, options.Cursor, strategy)
+
+	var records []mysqlRankingRecord
+	if err := applyRankingOrderAndLimit(base, strategy, limit).Scan(&records).Error; err != nil {
+		return nil, false, err
+	}
+
+	items, hasMore := mapRankingItems(records, limit)
+	return items, hasMore, nil
+}
+
+func normalizeRankingLimit(limit int) int {
 	if limit <= 0 {
-		limit = 20
+		return 20
 	}
+	return limit
+}
 
-	windowStart := time.Now().UTC().Add(-time.Duration(options.Filter.Days) * 24 * time.Hour)
-	if options.Filter.Days <= 0 {
-		windowStart = time.Now().UTC().Add(-30 * 24 * time.Hour)
+func resolveRankingWindowStart(days int) time.Time {
+	if days <= 0 {
+		days = 30
 	}
+	return time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+}
 
-	commentAgg := r.db.WithContext(ctx).
-		Table("comments").
-		Select("stall_id, COUNT(*) AS review_count, MAX(created_at) AS last_comment_at").
-		Where("status = ? AND created_at >= ?", 1, windowStart).
-		Group("stall_id")
-
-	ratingAgg := r.db.WithContext(ctx).
-		Table("ratings").
-		Select("stall_id, MAX(updated_at) AS last_rating_at").
-		Where("updated_at >= ?", windowStart).
-		Group("stall_id")
-
-	hotScoreExpr := "(s.avg_rating * 0.75 + LOG10(COALESCE(ca.review_count, 0) + 1) * 0.25)"
-	sortExpr := "s.avg_rating"
-	if options.Filter.Sort == "hot_desc" {
-		sortExpr = hotScoreExpr
+func resolveRankingSortStrategy(sort string) rankingSortStrategy {
+	strategy := rankingSortStrategy{sortExpr: "s.avg_rating"}
+	if sort == "hot_desc" {
+		strategy.sortExpr = rankingHotScoreExpr
 	}
+	return strategy
+}
 
-	base := r.db.WithContext(ctx).
+func (r *MySQLRankingRepository) buildRankingAggregates(ctx context.Context, windowStart time.Time) rankingAggregates {
+	return rankingAggregates{
+		commentAgg: r.db.WithContext(ctx).
+			Table("comments").
+			Select("stall_id, COUNT(*) AS review_count, MAX(created_at) AS last_comment_at").
+			Where("status = ? AND created_at >= ?", 1, windowStart).
+			Group("stall_id"),
+		ratingAgg: r.db.WithContext(ctx).
+			Table("ratings").
+			Select("stall_id, MAX(updated_at) AS last_rating_at").
+			Where("updated_at >= ?", windowStart).
+			Group("stall_id"),
+	}
+}
+
+func (r *MySQLRankingRepository) buildRankingBaseQuery(ctx context.Context, aggregates rankingAggregates) *gorm.DB {
+	return r.db.WithContext(ctx).
 		Table("stalls AS s").
 		Select(
 			"s.id AS stall_id, s.name AS stall_name, s.canteen_id, COALESCE(c.name, '') AS canteen_name, "+
 				"s.food_type_id, COALESCE(ft.name, '') AS food_type_name, s.avg_rating, s.rating_count, COALESCE(ca.review_count, 0) AS review_count, "+
-				hotScoreExpr+" AS hot_score, "+
-				"GREATEST(COALESCE(ca.last_comment_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(ra.last_rating_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(s.created_at, TIMESTAMP('1970-01-01 00:00:01'))) AS last_active_at",
+				rankingHotScoreExpr+" AS hot_score, "+
+				rankingLastActiveExpr+" AS last_active_at",
 		).
 		Joins("LEFT JOIN canteens AS c ON c.id = s.canteen_id").
 		Joins("LEFT JOIN food_types AS ft ON ft.id = s.food_type_id").
-		Joins("LEFT JOIN (?) AS ca ON ca.stall_id = s.id", commentAgg).
-		Joins("LEFT JOIN (?) AS ra ON ra.stall_id = s.id", ratingAgg).
+		Joins("LEFT JOIN (?) AS ca ON ca.stall_id = s.id", aggregates.commentAgg).
+		Joins("LEFT JOIN (?) AS ra ON ra.stall_id = s.id", aggregates.ratingAgg).
 		Where("s.status = ?", 1)
+}
 
-	if options.Filter.Scope == "canteen" {
-		base = base.Where("s.canteen_id = ?", options.Filter.ScopeID)
+func applyRankingFilters(base *gorm.DB, filter RankingFilter) *gorm.DB {
+	if filter.Scope == "canteen" {
+		base = base.Where("s.canteen_id = ?", filter.ScopeID)
 	}
-	if options.Filter.Scope == "foodType" {
-		base = base.Where("s.food_type_id = ?", options.Filter.ScopeID)
+	if filter.Scope == "foodType" {
+		base = base.Where("s.food_type_id = ?", filter.ScopeID)
 	}
-	if options.Filter.FoodTypeID > 0 {
-		base = base.Where("s.food_type_id = ?", options.Filter.FoodTypeID)
+	if filter.FoodTypeID > 0 {
+		base = base.Where("s.food_type_id = ?", filter.FoodTypeID)
 	}
+	return base
+}
 
-	lastActiveExpr := "GREATEST(COALESCE(ca.last_comment_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(ra.last_rating_at, TIMESTAMP('1970-01-01 00:00:01')), COALESCE(s.created_at, TIMESTAMP('1970-01-01 00:00:01')))"
-	if options.Cursor != nil {
-		cursorWhere := fmt.Sprintf(
-			"(%s < ?) OR (%s = ? AND (%s < ? OR (%s = ? AND s.id < ?)))",
-			sortExpr,
-			sortExpr,
-			lastActiveExpr,
-			lastActiveExpr,
-		)
-		base = base.Where(cursorWhere, options.Cursor.SortValue, options.Cursor.SortValue, options.Cursor.LastActiveAt, options.Cursor.LastActiveAt, options.Cursor.StallID)
+func applyRankingCursor(base *gorm.DB, cursor *RankingCursor, strategy rankingSortStrategy) *gorm.DB {
+	if cursor == nil {
+		return base
 	}
 
-	var records []mysqlRankingRecord
-	if err := base.Order(sortExpr + " DESC").Order("last_active_at DESC").Order("s.id DESC").Limit(limit + 1).Scan(&records).Error; err != nil {
-		return nil, false, err
-	}
+	// Cursor comparison follows the same ordering tuple: sort value, last_active_at, stall id.
+	cursorWhere := fmt.Sprintf(
+		"(%s < ?) OR (%s = ? AND (%s < ? OR (%s = ? AND s.id < ?)))",
+		strategy.sortExpr,
+		strategy.sortExpr,
+		rankingLastActiveExpr,
+		rankingLastActiveExpr,
+	)
+	return base.Where(cursorWhere, cursor.SortValue, cursor.SortValue, cursor.LastActiveAt, cursor.LastActiveAt, cursor.StallID)
+}
 
+func applyRankingOrderAndLimit(base *gorm.DB, strategy rankingSortStrategy, limit int) *gorm.DB {
+	return base.Order(strategy.sortExpr + " DESC").Order("last_active_at DESC").Order("s.id DESC").Limit(limit + 1)
+}
+
+func mapRankingItems(records []mysqlRankingRecord, limit int) ([]model.RankingItem, bool) {
 	hasMore := len(records) > limit
 	if hasMore {
 		records = records[:limit]
@@ -130,6 +181,5 @@ func (r *MySQLRankingRepository) ListRankings(ctx context.Context, options Ranki
 			LastActiveAt: rec.LastActiveAt.UTC(),
 		})
 	}
-
-	return items, hasMore, nil
+	return items, hasMore
 }
