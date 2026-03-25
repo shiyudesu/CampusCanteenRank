@@ -9,10 +9,23 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"CampusCanteenRank/server/internal/testkit"
 )
 
+func newTestEngine(secret string) http.Handler {
+	return NewEngineWithAllRepositories(
+		secret,
+		testkit.NewUserRepository(),
+		testkit.NewRefreshTokenRepository(),
+		testkit.NewStallRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewRankingRepository(),
+	)
+}
+
 func TestAuthRegisterLoginRefreshFlow(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	registerBody := map[string]interface{}{
 		"email":    "user@example.com",
@@ -69,7 +82,7 @@ func TestAuthRegisterLoginRefreshFlow(t *testing.T) {
 }
 
 func TestAuthErrorCases(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	resp := requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
 		"email":    "bad-email",
@@ -125,7 +138,7 @@ func TestAuthErrorCases(t *testing.T) {
 }
 
 func TestStallAndCanteenEndpoints(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	resp := requestNoBody(t, engine, http.MethodGet, "/api/v1/canteens")
 	if resp.Code != http.StatusOK {
@@ -272,7 +285,7 @@ func TestStallAndCanteenEndpoints(t *testing.T) {
 }
 
 func TestStallListInvalidParams(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	resp := requestNoBody(t, engine, http.MethodGet, "/api/v1/stalls?limit=bad")
 	if resp.Code != http.StatusBadRequest {
@@ -294,7 +307,7 @@ func TestStallListInvalidParams(t *testing.T) {
 }
 
 func TestUpsertStallRatingEndpoint(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
 		"email":    "rating@example.com",
@@ -453,7 +466,7 @@ func TestUpsertStallRatingEndpoint(t *testing.T) {
 }
 
 func TestCommentCreateAndListTopLevel(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
 		"email":    "commenter@example.com",
@@ -711,7 +724,7 @@ func TestCommentCreateAndListTopLevel(t *testing.T) {
 }
 
 func TestCommentCursorPaginationSameSecondNoLoss(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
 		"email":    "same-second@example.com",
@@ -816,7 +829,7 @@ func TestCommentCursorPaginationSameSecondNoLoss(t *testing.T) {
 }
 
 func TestCommentLikeEndpoints(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
 		"email":    "liker@example.com",
@@ -982,7 +995,7 @@ func TestCommentLikeEndpoints(t *testing.T) {
 }
 
 func TestCommentListRepliesEndpoint(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
 		"email":    "replier@example.com",
@@ -1187,7 +1200,7 @@ func TestCommentListRepliesEndpoint(t *testing.T) {
 }
 
 func TestMeEndpoints(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	_ = requestJSON(t, engine, http.MethodPost, "/api/v1/auth/register", map[string]interface{}{
 		"email":    "me@example.com",
@@ -1386,7 +1399,7 @@ func TestMeEndpoints(t *testing.T) {
 }
 
 func TestRankingEndpoints(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	resp := requestNoBody(t, engine, http.MethodGet, "/api/v1/rankings?scope=global&scopeId=0&foodTypeId=0&days=30&sort=score_desc&limit=2")
 	if resp.Code != http.StatusOK {
@@ -1556,14 +1569,14 @@ func requestJSON(t *testing.T, handler http.Handler, method string, path string,
 }
 
 func TestSwaggerRoutes(t *testing.T) {
-	engine := NewEngine("test-secret-12345678901234567890")
+	engine := newTestEngine("test-secret-12345678901234567890")
 
 	swaggerResp := requestNoBody(t, engine, http.MethodGet, "/swagger")
 	if swaggerResp.Code != http.StatusOK {
 		t.Fatalf("swagger page status = %d, want 200", swaggerResp.Code)
 	}
-	if !strings.Contains(swaggerResp.Body.String(), "SwaggerUIBundle") {
-		t.Fatalf("swagger page should contain SwaggerUIBundle script")
+	if !strings.Contains(swaggerResp.Body.String(), "/swagger/doc.json") {
+		t.Fatalf("swagger page should contain local doc link")
 	}
 
 	docResp := requestNoBody(t, engine, http.MethodGet, "/swagger/doc.json")

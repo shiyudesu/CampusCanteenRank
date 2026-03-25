@@ -11,12 +11,12 @@ import (
 
 	dto "CampusCanteenRank/server/internal/dto/stall"
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
-	"CampusCanteenRank/server/internal/repository/stall"
+	repository "CampusCanteenRank/server/internal/repository/stall"
 )
 
 type stallListCursor struct {
-	AvgRating float64 `json:"avgRating"`
-	ID        int64   `json:"id"`
+	AvgRatingX100 int64 `json:"avgRatingX100"`
+	ID            int64 `json:"id"`
 }
 
 type StallService struct {
@@ -87,7 +87,7 @@ func (s *StallService) ListStalls(ctx context.Context, limit int, cursorText str
 	var nextCursor *string
 	if len(items) > 0 && hasMore {
 		last := items[len(items)-1]
-		token, encodeErr := encodeStallCursor(stallListCursor{AvgRating: last.AvgRating, ID: last.ID})
+		token, encodeErr := encodeStallCursor(stallListCursor{AvgRatingX100: int64(math.Round(last.AvgRating * 100)), ID: last.ID})
 		if encodeErr != nil {
 			return nil, errpkg.New(errpkg.CodeInternal, "internal error", encodeErr)
 		}
@@ -159,10 +159,10 @@ func decodeStallCursor(raw string) (*repository.StallCursor, error) {
 	if err := json.Unmarshal(decoded, &payload); err != nil {
 		return nil, err
 	}
-	if payload.ID <= 0 || math.IsNaN(payload.AvgRating) || math.IsInf(payload.AvgRating, 0) {
+	if payload.ID <= 0 || payload.AvgRatingX100 < 0 {
 		return nil, strconv.ErrSyntax
 	}
-	return &repository.StallCursor{AvgRating: payload.AvgRating, ID: payload.ID}, nil
+	return &repository.StallCursor{AvgRatingX100: payload.AvgRatingX100, ID: payload.ID}, nil
 }
 
 func encodeStallCursor(payload stallListCursor) (string, error) {

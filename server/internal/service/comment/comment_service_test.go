@@ -8,9 +8,7 @@ import (
 	dto "CampusCanteenRank/server/internal/dto/comment"
 	authmodel "CampusCanteenRank/server/internal/model/auth"
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
-	authrepo "CampusCanteenRank/server/internal/repository/auth"
-	commentrepo "CampusCanteenRank/server/internal/repository/comment"
-	stallrepo "CampusCanteenRank/server/internal/repository/stall"
+	"CampusCanteenRank/server/internal/testkit"
 )
 
 type fakeRankingInvalidator struct {
@@ -24,9 +22,9 @@ func (f *fakeRankingInvalidator) InvalidateRankingCache(_ context.Context) error
 
 func TestCommentServiceLikeUnlike(t *testing.T) {
 	service := NewCommentService(
-		commentrepo.NewMemoryCommentRepository(),
-		stallrepo.NewMemoryStallRepository(),
-		authrepo.NewMemoryUserRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewStallRepository(),
+		testkit.NewUserRepository(),
 	)
 
 	ctx := context.Background()
@@ -73,9 +71,9 @@ func TestCommentServiceLikeUnlike(t *testing.T) {
 func TestCommentServiceLikeUnlikeTriggersRankingInvalidation(t *testing.T) {
 	invalidator := &fakeRankingInvalidator{}
 	service := NewCommentService(
-		commentrepo.NewMemoryCommentRepository(),
-		stallrepo.NewMemoryStallRepository(),
-		authrepo.NewMemoryUserRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewStallRepository(),
+		testkit.NewUserRepository(),
 		invalidator,
 	)
 
@@ -94,9 +92,9 @@ func TestCommentServiceLikeUnlikeTriggersRankingInvalidation(t *testing.T) {
 
 func TestCommentServiceLikeCommentNotFound(t *testing.T) {
 	service := NewCommentService(
-		commentrepo.NewMemoryCommentRepository(),
-		stallrepo.NewMemoryStallRepository(),
-		authrepo.NewMemoryUserRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewStallRepository(),
+		testkit.NewUserRepository(),
 	)
 
 	_, err := service.LikeComment(context.Background(), 1001, 999999)
@@ -114,9 +112,9 @@ func TestCommentServiceLikeCommentNotFound(t *testing.T) {
 
 func TestCommentServiceUnlikeCommentNotFound(t *testing.T) {
 	service := NewCommentService(
-		commentrepo.NewMemoryCommentRepository(),
-		stallrepo.NewMemoryStallRepository(),
-		authrepo.NewMemoryUserRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewStallRepository(),
+		testkit.NewUserRepository(),
 	)
 
 	_, err := service.UnlikeComment(context.Background(), 1001, 999999)
@@ -134,9 +132,9 @@ func TestCommentServiceUnlikeCommentNotFound(t *testing.T) {
 
 func TestCommentServiceLikeUnlikeInvalidParams(t *testing.T) {
 	service := NewCommentService(
-		commentrepo.NewMemoryCommentRepository(),
-		stallrepo.NewMemoryStallRepository(),
-		authrepo.NewMemoryUserRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewStallRepository(),
+		testkit.NewUserRepository(),
 	)
 
 	cases := []struct {
@@ -179,7 +177,7 @@ func TestCommentServiceLikeUnlikeInvalidParams(t *testing.T) {
 }
 
 func TestCommentServiceListReplies(t *testing.T) {
-	users := authrepo.NewMemoryUserRepository()
+	users := testkit.NewUserRepository()
 	if err := users.Create(context.Background(), &authmodel.User{
 		Nickname:     "Tom",
 		Email:        "tom@example.com",
@@ -190,8 +188,8 @@ func TestCommentServiceListReplies(t *testing.T) {
 	}
 
 	service := NewCommentService(
-		commentrepo.NewMemoryCommentRepository(),
-		stallrepo.NewMemoryStallRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewStallRepository(),
 		users,
 	)
 
@@ -270,9 +268,9 @@ func TestCommentServiceListReplies(t *testing.T) {
 
 func TestCommentServiceListRepliesErrors(t *testing.T) {
 	service := NewCommentService(
-		commentrepo.NewMemoryCommentRepository(),
-		stallrepo.NewMemoryStallRepository(),
-		authrepo.NewMemoryUserRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewStallRepository(),
+		testkit.NewUserRepository(),
 	)
 
 	ctx := context.Background()
@@ -313,7 +311,7 @@ func TestCommentServiceListRepliesErrors(t *testing.T) {
 }
 
 func TestCommentServiceCreateReplyIncrementsRootReplyCount(t *testing.T) {
-	users := authrepo.NewMemoryUserRepository()
+	users := testkit.NewUserRepository()
 	if err := users.Create(context.Background(), &authmodel.User{
 		Nickname:     "Alice",
 		Email:        "alice-reply@example.com",
@@ -324,8 +322,8 @@ func TestCommentServiceCreateReplyIncrementsRootReplyCount(t *testing.T) {
 	}
 
 	service := NewCommentService(
-		commentrepo.NewMemoryCommentRepository(),
-		stallrepo.NewMemoryStallRepository(),
+		testkit.NewCommentRepository(),
+		testkit.NewStallRepository(),
 		users,
 	)
 

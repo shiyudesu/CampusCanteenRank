@@ -4,9 +4,27 @@ import (
 	"testing"
 )
 
-func TestLoadUsesDefaults(t *testing.T) {
+func TestLoadFailsWhenJWTSecretMissing(t *testing.T) {
 	t.Setenv("SERVER_PORT", "")
 	t.Setenv("JWT_SECRET", "")
+	t.Setenv("MYSQL_DSN", "")
+	t.Setenv("REDIS_ADDR", "")
+	t.Setenv("REDIS_PASSWORD", "")
+	t.Setenv("REDIS_DB", "")
+	t.Setenv("REDIS_REFRESH_PREFIX", "")
+	t.Setenv("REDIS_RANKING_PREFIX", "")
+	t.Setenv("LOG_LEVEL", "")
+	t.Setenv("LOG_SENSITIVE_FIELDS", "")
+
+	_, err := Load()
+	if err == nil {
+		t.Fatalf("expected load config to fail when JWT_SECRET is missing")
+	}
+}
+
+func TestLoadUsesDefaults(t *testing.T) {
+	t.Setenv("SERVER_PORT", "")
+	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("MYSQL_DSN", "")
 	t.Setenv("REDIS_ADDR", "")
 	t.Setenv("REDIS_PASSWORD", "")
@@ -24,8 +42,8 @@ func TestLoadUsesDefaults(t *testing.T) {
 	if cfg.ServerPort != "8080" {
 		t.Fatalf("server port = %q, want 8080", cfg.ServerPort)
 	}
-	if cfg.JWTSecret == "" {
-		t.Fatalf("jwt secret should not be empty")
+	if cfg.JWTSecret != "0123456789abcdef0123456789abcdef" {
+		t.Fatalf("jwt secret mismatch")
 	}
 	if cfg.LogLevel != "info" {
 		t.Fatalf("log level = %q, want info", cfg.LogLevel)
@@ -46,7 +64,7 @@ func TestLoadUsesDefaults(t *testing.T) {
 
 func TestLoadReadsEnvironment(t *testing.T) {
 	t.Setenv("SERVER_PORT", "9090")
-	t.Setenv("JWT_SECRET", "test-secret")
+	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
 	t.Setenv("MYSQL_DSN", "dsn")
 	t.Setenv("REDIS_ADDR", "127.0.0.1:6379")
 	t.Setenv("REDIS_PASSWORD", "pwd")
@@ -64,7 +82,7 @@ func TestLoadReadsEnvironment(t *testing.T) {
 	if cfg.ServerPort != "9090" {
 		t.Fatalf("server port = %q, want 9090", cfg.ServerPort)
 	}
-	if cfg.JWTSecret != "test-secret" {
+	if cfg.JWTSecret != "0123456789abcdef0123456789abcdef" {
 		t.Fatalf("jwt secret mismatch")
 	}
 	if cfg.MySQLDSN != "dsn" {

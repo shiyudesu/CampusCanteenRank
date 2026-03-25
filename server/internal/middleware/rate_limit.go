@@ -7,17 +7,20 @@ import (
 
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
 	"CampusCanteenRank/server/internal/pkg/response"
+
 	"github.com/gin-gonic/gin"
 )
 
 type rateBucket struct {
 	windowStart time.Time
 	count       int
+	lastSeen    time.Time
 }
 
 var (
 	rateLimiterMu sync.Mutex
 	rateBuckets   = map[string]rateBucket{}
+	lastCleanupAt time.Time
 )
 
 func RateLimitByClient(routeKey string, maxRequests int, window time.Duration) gin.HandlerFunc {
@@ -39,10 +42,19 @@ func RateLimitByClient(routeKey string, maxRequests int, window time.Duration) g
 		rateLimiterMu.Lock()
 		bucket := rateBuckets[bucketKey]
 		if bucket.windowStart.IsZero() || now.Sub(bucket.windowStart) >= window {
-			bucket = rateBucket{windowStart: now, count: 0}
+			bucket = rateBucket{windowStart: now, count: 0, lastSeen: now}
 		}
 		bucket.count++
+		bucket.lastSeen = now
 		rateBuckets[bucketKey] = bucket
+		if lastCleanupAt.IsZero() || now.Sub(lastCleanupAt) >= window {
+			for key, existing := range rateBuckets {
+				if now.Sub(existing.lastSeen) >= window {
+					delete(rateBuckets, key)
+				}
+			}
+			lastCleanupAt = now
+		}
 		allowed := bucket.count <= maxRequests
 		rateLimiterMu.Unlock()
 

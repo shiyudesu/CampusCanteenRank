@@ -7,6 +7,7 @@ import (
 	"time"
 
 	model "CampusCanteenRank/server/internal/model/stall"
+
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -89,7 +90,7 @@ func (r *MySQLStallRepository) ListStalls(ctx context.Context, options StallList
 		query = query.Where("food_type_id = ?", options.Filter.FoodTypeID)
 	}
 	if options.Cursor != nil {
-		query = query.Where("(avg_rating < ?) OR (avg_rating = ? AND id < ?)", options.Cursor.AvgRating, options.Cursor.AvgRating, options.Cursor.ID)
+		query = query.Where("(CAST(avg_rating * 100 AS SIGNED) < ?) OR (CAST(avg_rating * 100 AS SIGNED) = ? AND id < ?)", options.Cursor.AvgRatingX100, options.Cursor.AvgRatingX100, options.Cursor.ID)
 	}
 
 	var records []mysqlStallRecord
@@ -136,6 +137,50 @@ func (r *MySQLStallRepository) GetStallByID(ctx context.Context, stallID int64) 
 		Status:      rec.Status,
 		CreatedAt:   rec.CreatedAt,
 	}, nil
+}
+
+func (r *MySQLStallRepository) GetStallsByIDs(ctx context.Context, stallIDs []int64) (map[int64]*model.Stall, error) {
+	result := make(map[int64]*model.Stall, len(stallIDs))
+	if len(stallIDs) == 0 {
+		return result, nil
+	}
+
+	unique := make(map[int64]struct{}, len(stallIDs))
+	normalizedIDs := make([]int64, 0, len(stallIDs))
+	for _, id := range stallIDs {
+		if id <= 0 {
+			continue
+		}
+		if _, exists := unique[id]; exists {
+			continue
+		}
+		unique[id] = struct{}{}
+		normalizedIDs = append(normalizedIDs, id)
+	}
+	if len(normalizedIDs) == 0 {
+		return result, nil
+	}
+
+	var records []mysqlStallRecord
+	if err := r.db.WithContext(ctx).
+		Where("status = ? AND id IN ?", 1, normalizedIDs).
+		Find(&records).Error; err != nil {
+		return nil, err
+	}
+	for _, rec := range records {
+		item := rec
+		result[item.ID] = &model.Stall{
+			ID:          item.ID,
+			CanteenID:   item.CanteenID,
+			FoodTypeID:  item.FoodTypeID,
+			Name:        item.Name,
+			AvgRating:   math.Round(item.AvgRating*100) / 100,
+			RatingCount: item.RatingCount,
+			Status:      item.Status,
+			CreatedAt:   item.CreatedAt,
+		}
+	}
+	return result, nil
 }
 
 func (r *MySQLStallRepository) GetUserRating(ctx context.Context, userID int64, stallID int64) (*int, error) {

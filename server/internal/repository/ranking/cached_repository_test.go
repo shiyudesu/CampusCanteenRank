@@ -64,7 +64,7 @@ func (r *fakeRankingRepo) ListRankings(_ context.Context, _ RankingListOptions) 
 }
 
 func TestNewCachedRankingRepositoryFallback(t *testing.T) {
-	next := NewMemoryRankingRepository()
+	next := &fakeRankingRepo{items: []model.RankingItem{{StallID: 101, StallName: "A"}}}
 	if got := NewCachedRankingRepository(next, nil, "", 0); got != next {
 		t.Fatalf("expected fallback to next repository when client is nil")
 	}

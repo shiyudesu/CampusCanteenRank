@@ -190,19 +190,25 @@ func (s *CommentService) ListTopLevelComments(
 	}
 
 	nicknames := make(map[int64]string, len(items))
+	userIDs := make([]int64, 0, len(items))
+	seen := make(map[int64]struct{}, len(items))
 	for _, item := range items {
-		if _, exists := nicknames[item.UserID]; exists {
+		if _, exists := seen[item.UserID]; exists {
 			continue
 		}
-		user, userErr := s.users.GetByID(ctx, item.UserID)
-		if userErr != nil {
-			if errors.Is(userErr, authrepo.ErrNotFound) {
-				nicknames[item.UserID] = "Unknown User"
-				continue
-			}
-			return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
+		seen[item.UserID] = struct{}{}
+		userIDs = append(userIDs, item.UserID)
+	}
+	users, userErr := s.users.GetByIDs(ctx, userIDs)
+	if userErr != nil {
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
+	}
+	for _, userID := range userIDs {
+		if user, exists := users[userID]; exists {
+			nicknames[userID] = user.Nickname
+			continue
 		}
-		nicknames[item.UserID] = user.Nickname
+		nicknames[userID] = "Unknown User"
 	}
 
 	out := make([]dto.CommentItem, 0, len(items))
@@ -271,33 +277,30 @@ func (s *CommentService) ListReplies(
 	}
 
 	nicknames := make(map[int64]string, len(items)+1)
+	userIDs := make([]int64, 0, len(items)*2)
+	seen := make(map[int64]struct{}, len(items)*2)
 	for _, item := range items {
-		if _, exists := nicknames[item.UserID]; !exists {
-			user, userErr := s.users.GetByID(ctx, item.UserID)
-			if userErr != nil {
-				if errors.Is(userErr, authrepo.ErrNotFound) {
-					nicknames[item.UserID] = "Unknown User"
-				} else {
-					return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
-				}
-			} else {
-				nicknames[item.UserID] = user.Nickname
-			}
+		if _, exists := seen[item.UserID]; !exists {
+			seen[item.UserID] = struct{}{}
+			userIDs = append(userIDs, item.UserID)
 		}
 		if item.ReplyToUserID > 0 {
-			if _, exists := nicknames[item.ReplyToUserID]; !exists {
-				user, userErr := s.users.GetByID(ctx, item.ReplyToUserID)
-				if userErr != nil {
-					if errors.Is(userErr, authrepo.ErrNotFound) {
-						nicknames[item.ReplyToUserID] = "Unknown User"
-					} else {
-						return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
-					}
-				} else {
-					nicknames[item.ReplyToUserID] = user.Nickname
-				}
+			if _, exists := seen[item.ReplyToUserID]; !exists {
+				seen[item.ReplyToUserID] = struct{}{}
+				userIDs = append(userIDs, item.ReplyToUserID)
 			}
 		}
+	}
+	users, userErr := s.users.GetByIDs(ctx, userIDs)
+	if userErr != nil {
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
+	}
+	for _, userID := range userIDs {
+		if user, exists := users[userID]; exists {
+			nicknames[userID] = user.Nickname
+			continue
+		}
+		nicknames[userID] = "Unknown User"
 	}
 
 	out := make([]dto.CommentItem, 0, len(items))

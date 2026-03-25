@@ -16,19 +16,17 @@ const swaggerUIHTML = `<!doctype html>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>CampusCanteenRank API Docs</title>
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  <style>
+    body { font-family: sans-serif; margin: 2rem; line-height: 1.6; }
+    a { color: #0a58ca; }
+    code { background: #f2f4f7; padding: 0.1rem 0.3rem; border-radius: 4px; }
+  </style>
 </head>
 <body>
-  <div id="swagger-ui"></div>
-  <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
-  <script>
-    window.ui = SwaggerUIBundle({
-      url: '/swagger/doc.json',
-      dom_id: '#swagger-ui',
-      deepLinking: true,
-      presets: [SwaggerUIBundle.presets.apis],
-    });
-  </script>
+  <h1>CampusCanteenRank API Docs</h1>
+  <p>OpenAPI document is served locally to avoid external CDN dependencies.</p>
+  <p>JSON spec: <a href="/swagger/doc.json">/swagger/doc.json</a></p>
+  <p>Import this URL into your local API tool (for example Postman/Insomnia/Swagger Editor): <code>/swagger/doc.json</code></p>
 </body>
 </html>`
 

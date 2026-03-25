@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
-	repository "CampusCanteenRank/server/internal/repository/ranking"
+	"CampusCanteenRank/server/internal/testkit"
 )
 
 func TestRankingServiceListRankings(t *testing.T) {
-	svc := NewRankingService(repository.NewMemoryRankingRepository())
+	svc := NewRankingService(testkit.NewRankingRepository())
 
 	first, err := svc.ListRankings(context.Background(), "global", 0, 0, 30, "score_desc", 2, "")
 	if err != nil {
@@ -53,7 +53,7 @@ func TestRankingServiceListRankings(t *testing.T) {
 }
 
 func TestRankingServiceInvalidParams(t *testing.T) {
-	svc := NewRankingService(repository.NewMemoryRankingRepository())
+	svc := NewRankingService(testkit.NewRankingRepository())
 
 	cases := []struct {
 		name string
@@ -99,7 +99,7 @@ func TestRankingServiceInvalidParams(t *testing.T) {
 }
 
 func TestRankingServiceTrimmedParams(t *testing.T) {
-	svc := NewRankingService(repository.NewMemoryRankingRepository())
+	svc := NewRankingService(testkit.NewRankingRepository())
 
 	data, err := svc.ListRankings(context.Background(), "  global  ", 0, 0, 30, "  hot_desc  ", 2, "")
 	if err != nil {

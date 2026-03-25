@@ -2,16 +2,19 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"CampusCanteenRank/server/internal/dto/auth"
-	"CampusCanteenRank/server/internal/model/auth"
+	dto "CampusCanteenRank/server/internal/dto/auth"
+	model "CampusCanteenRank/server/internal/model/auth"
 	authpkg "CampusCanteenRank/server/internal/pkg/auth"
 	errpkg "CampusCanteenRank/server/internal/pkg/errors"
-	"CampusCanteenRank/server/internal/repository/auth"
+	repository "CampusCanteenRank/server/internal/repository/auth"
+
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/bcrypt"
 )
@@ -36,7 +39,7 @@ func NewAuthService(
 		users:         users,
 		refreshTokens: refreshTokens,
 		secret:        secret,
-		issuer:        "canteen-api",
+		issuer:        authpkg.TokenIssuer,
 		accessTTL:     2 * time.Hour,
 		refreshTTL:    7 * 24 * time.Hour,
 		nowFunc:       time.Now,
@@ -169,6 +172,7 @@ func (s *AuthService) buildAccessToken(userID int64) (string, int64, error) {
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   fmt.Sprintf("%d", userID),
 			Issuer:    s.issuer,
+			Audience:  jwt.ClaimStrings{authpkg.TokenAudience},
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(exp),
 		},
@@ -192,6 +196,7 @@ func (s *AuthService) buildRefreshToken(userID int64, deviceID string) (string, 
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   fmt.Sprintf("%d", userID),
 			Issuer:    s.issuer,
+			Audience:  jwt.ClaimStrings{authpkg.TokenAudience},
 			IssuedAt:  jwt.NewNumericDate(now),
 			ExpiresAt: jwt.NewNumericDate(exp),
 			ID:        jti,
@@ -232,5 +237,9 @@ func (s *AuthService) Logout(ctx context.Context, req dto.RefreshRequest) error 
 }
 
 func defaultID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return fmt.Sprintf("fallback-%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(b)
 }

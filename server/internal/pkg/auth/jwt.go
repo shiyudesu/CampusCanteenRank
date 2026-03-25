@@ -11,6 +11,8 @@ import (
 const (
 	TokenTypeAccess  = "access"
 	TokenTypeRefresh = "refresh"
+	TokenIssuer      = "canteen-api"
+	TokenAudience    = "canteen-client"
 )
 
 var ErrInvalidToken = errors.New("invalid token")
@@ -43,5 +45,20 @@ func ParseToken(secret string, tokenString string) (*Claims, error) {
 	if !ok || !token.Valid {
 		return nil, ErrInvalidToken
 	}
+	if claims.Issuer != TokenIssuer {
+		return nil, ErrInvalidToken
+	}
+	if !containsAudience(claims.Audience, TokenAudience) {
+		return nil, ErrInvalidToken
+	}
 	return claims, nil
+}
+
+func containsAudience(audience jwt.ClaimStrings, expected string) bool {
+	for _, item := range audience {
+		if item == expected {
+			return true
+		}
+	}
+	return false
 }

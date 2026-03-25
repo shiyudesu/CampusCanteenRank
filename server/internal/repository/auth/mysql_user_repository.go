@@ -5,7 +5,8 @@ import (
 	"errors"
 	"time"
 
-	"CampusCanteenRank/server/internal/model/auth"
+	model "CampusCanteenRank/server/internal/model/auth"
+
 	mysqlDriver "github.com/go-sql-driver/mysql"
 	"gorm.io/gorm"
 )
@@ -88,6 +89,46 @@ func (r *MySQLUserRepository) GetByID(ctx context.Context, id int64) (*model.Use
 		Status:       rec.Status,
 		CreatedAt:    rec.CreatedAt,
 	}, nil
+}
+
+func (r *MySQLUserRepository) GetByIDs(ctx context.Context, ids []int64) (map[int64]*model.User, error) {
+	result := make(map[int64]*model.User, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	unique := make(map[int64]struct{}, len(ids))
+	normalizedIDs := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id <= 0 {
+			continue
+		}
+		if _, exists := unique[id]; exists {
+			continue
+		}
+		unique[id] = struct{}{}
+		normalizedIDs = append(normalizedIDs, id)
+	}
+	if len(normalizedIDs) == 0 {
+		return result, nil
+	}
+
+	var records []mysqlUserRecord
+	if err := r.db.WithContext(ctx).Where("id IN ?", normalizedIDs).Find(&records).Error; err != nil {
+		return nil, err
+	}
+	for _, rec := range records {
+		item := rec
+		result[item.ID] = &model.User{
+			ID:           item.ID,
+			Nickname:     item.Nickname,
+			Email:        item.Email,
+			PasswordHash: item.PasswordHash,
+			Status:       item.Status,
+			CreatedAt:    item.CreatedAt,
+		}
+	}
+	return result, nil
 }
 
 func isMySQLDuplicate(err error) bool {

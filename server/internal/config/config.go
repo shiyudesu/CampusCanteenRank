@@ -9,7 +9,6 @@ import (
 
 const (
 	defaultServerPort         = "8080"
-	defaultJWTSecret          = "dev-only-secret-change-me-please-1234567890"
 	defaultLogLevel           = "info"
 	defaultRedisDB            = 0
 	defaultRedisRefreshPrefix = "auth:refresh"
@@ -46,7 +45,6 @@ func Load() (RuntimeConfig, error) {
 	v.AddConfigPath("./configs")
 
 	v.SetDefault("SERVER_PORT", defaultServerPort)
-	v.SetDefault("JWT_SECRET", defaultJWTSecret)
 	v.SetDefault("LOG_LEVEL", defaultLogLevel)
 	v.SetDefault("REDIS_DB", defaultRedisDB)
 	v.SetDefault("REDIS_REFRESH_PREFIX", defaultRedisRefreshPrefix)
@@ -77,7 +75,10 @@ func Load() (RuntimeConfig, error) {
 		cfg.ServerPort = defaultServerPort
 	}
 	if cfg.JWTSecret == "" {
-		cfg.JWTSecret = defaultJWTSecret
+		return RuntimeConfig{}, errors.New("JWT_SECRET is required")
+	}
+	if len(cfg.JWTSecret) < 32 {
+		return RuntimeConfig{}, errors.New("JWT_SECRET must be at least 32 characters")
 	}
 	if cfg.LogLevel == "" {
 		cfg.LogLevel = defaultLogLevel

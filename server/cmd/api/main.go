@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 	rankingrepo "CampusCanteenRank/server/internal/repository/ranking"
 	stallrepo "CampusCanteenRank/server/internal/repository/stall"
 	"CampusCanteenRank/server/internal/router"
+
 	"github.com/redis/go-redis/v9"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -28,7 +30,10 @@ func main() {
 	}
 	logpkg.SetSensitiveFields(cfg.LogSensitiveFields)
 
-	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup := buildRepositories(cfg)
+	userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, cleanup, err := buildRepositories(cfg)
+	if err != nil {
+		log.Fatalf("build repositories failed: %v", err)
+	}
 	defer cleanup()
 
 	r := router.NewEngineWithAllRepositories(cfg.JWTSecret, userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository)
@@ -44,45 +49,48 @@ func buildRepositories(cfg config.RuntimeConfig) (
 	commentrepo.CommentRepository,
 	rankingrepo.RankingRepository,
 	func(),
+	error,
 ) {
 	mysqlDSN := cfg.MySQLDSN
 	redisAddr := cfg.RedisAddr
 	if mysqlDSN == "" || redisAddr == "" {
-		log.Println("repository mode: memory (MYSQL_DSN or REDIS_ADDR missing)")
-		return memoryRepositories()
+		return nil, nil, nil, nil, nil, func() {}, errors.New("MYSQL_DSN and REDIS_ADDR are required")
 	}
 
 	db, err := gorm.Open(mysql.Open(mysqlDSN), &gorm.Config{})
 	if err != nil {
-		log.Printf("mysql init failed, fallback to memory: %v", err)
-		return memoryRepositories()
+		return nil, nil, nil, nil, nil, func() {}, err
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		return nil, nil, nil, nil, nil, func() {}, err
 	}
 	if err := migration.ApplySQLMigrations(db); err != nil {
-		log.Printf("sql migrations apply failed, fallback to memory: %v", err)
-		return memoryRepositories()
+		_ = sqlDB.Close()
+		return nil, nil, nil, nil, nil, func() {}, err
 	}
 	userRepo, err := authrepo.NewMySQLUserRepository(db)
 	if err != nil {
-		log.Printf("mysql user repository init failed, fallback to memory: %v", err)
-		return memoryRepositories()
+		_ = sqlDB.Close()
+		return nil, nil, nil, nil, nil, func() {}, err
 	}
 
 	stallRepository, err := stallrepo.NewMySQLStallRepository(db)
 	if err != nil {
-		log.Printf("mysql stall repository init failed, fallback to memory: %v", err)
-		return memoryRepositories()
+		_ = sqlDB.Close()
+		return nil, nil, nil, nil, nil, func() {}, err
 	}
 
 	commentRepository, err := commentrepo.NewMySQLCommentRepository(db)
 	if err != nil {
-		log.Printf("mysql comment repository init failed, fallback to memory: %v", err)
-		return memoryRepositories()
+		_ = sqlDB.Close()
+		return nil, nil, nil, nil, nil, func() {}, err
 	}
 
 	mysqlRankingRepository, err := rankingrepo.NewMySQLRankingRepository(db)
 	if err != nil {
-		log.Printf("mysql ranking repository init failed, fallback to memory: %v", err)
-		return memoryRepositories()
+		_ = sqlDB.Close()
+		return nil, nil, nil, nil, nil, func() {}, err
 	}
 	var rankingRepository rankingrepo.RankingRepository = mysqlRankingRepository
 
@@ -94,16 +102,16 @@ func buildRepositories(cfg config.RuntimeConfig) (
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if pingErr := redisClient.Ping(ctx).Err(); pingErr != nil {
-		log.Printf("redis init failed, fallback to memory: %v", pingErr)
 		_ = redisClient.Close()
-		return memoryRepositories()
+		_ = sqlDB.Close()
+		return nil, nil, nil, nil, nil, func() {}, pingErr
 	}
 
 	refreshRepo, err := authrepo.NewRedisRefreshTokenRepository(redisClient, cfg.RedisRefreshPrefix)
 	if err != nil {
-		log.Printf("redis refresh repository init failed, fallback to memory: %v", err)
 		_ = redisClient.Close()
-		return memoryRepositories()
+		_ = sqlDB.Close()
+		return nil, nil, nil, nil, nil, func() {}, err
 	}
 
 	rankingRepository = rankingrepo.NewCachedRankingRepository(
@@ -116,21 +124,6 @@ func buildRepositories(cfg config.RuntimeConfig) (
 	log.Println("repository mode: persistent (MySQL + Redis)")
 	return userRepo, refreshRepo, stallRepository, commentRepository, rankingRepository, func() {
 		_ = redisClient.Close()
-	}
-}
-
-func memoryRepositories() (
-	authrepo.UserRepository,
-	authrepo.RefreshTokenRepository,
-	stallrepo.StallRepository,
-	commentrepo.CommentRepository,
-	rankingrepo.RankingRepository,
-	func(),
-) {
-	return authrepo.NewMemoryUserRepository(),
-		authrepo.NewMemoryRefreshTokenRepository(),
-		stallrepo.NewMemoryStallRepository(),
-		commentrepo.NewMemoryCommentRepository(),
-		rankingrepo.NewMemoryRankingRepository(),
-		func() {}
+		_ = sqlDB.Close()
+	}, nil
 }

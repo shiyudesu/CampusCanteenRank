@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"time"
 
@@ -59,33 +58,30 @@ func (s *MeService) ListMyComments(ctx context.Context, userID int64, limit int,
 	}
 
 	nicknames := make(map[int64]string, len(items))
+	userIDs := make([]int64, 0, len(items)*2)
+	seenUserIDs := make(map[int64]struct{}, len(items)*2)
 	for _, item := range items {
-		if _, exists := nicknames[item.UserID]; !exists {
-			user, userErr := s.users.GetByID(ctx, item.UserID)
-			if userErr != nil {
-				if errors.Is(userErr, authrepo.ErrNotFound) {
-					nicknames[item.UserID] = "Unknown User"
-				} else {
-					return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
-				}
-			} else {
-				nicknames[item.UserID] = user.Nickname
-			}
+		if _, exists := seenUserIDs[item.UserID]; !exists {
+			seenUserIDs[item.UserID] = struct{}{}
+			userIDs = append(userIDs, item.UserID)
 		}
 		if item.ReplyToUserID > 0 {
-			if _, exists := nicknames[item.ReplyToUserID]; !exists {
-				user, userErr := s.users.GetByID(ctx, item.ReplyToUserID)
-				if userErr != nil {
-					if errors.Is(userErr, authrepo.ErrNotFound) {
-						nicknames[item.ReplyToUserID] = "Unknown User"
-					} else {
-						return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
-					}
-				} else {
-					nicknames[item.ReplyToUserID] = user.Nickname
-				}
+			if _, exists := seenUserIDs[item.ReplyToUserID]; !exists {
+				seenUserIDs[item.ReplyToUserID] = struct{}{}
+				userIDs = append(userIDs, item.ReplyToUserID)
 			}
 		}
+	}
+	users, userErr := s.users.GetByIDs(ctx, userIDs)
+	if userErr != nil {
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", userErr)
+	}
+	for _, userID := range userIDs {
+		if user, exists := users[userID]; exists {
+			nicknames[userID] = user.Nickname
+			continue
+		}
+		nicknames[userID] = "Unknown User"
 	}
 
 	out := make([]commentdto.CommentItem, 0, len(items))
@@ -152,20 +148,6 @@ func (s *MeService) resolveLikedByMeBatch(ctx context.Context, viewerUserID int6
 	return result, nil
 }
 
-func (s *MeService) resolveLikedByMe(ctx context.Context, viewerUserID int64, commentID int64) (bool, error) {
-	if viewerUserID <= 0 {
-		return false, nil
-	}
-	likedByMe, err := s.comments.HasLiked(ctx, viewerUserID, commentID)
-	if err != nil {
-		if errors.Is(err, commentrepo.ErrNotFound) {
-			return false, errpkg.New(errpkg.CodeNotFound, "comment not found", nil)
-		}
-		return false, errpkg.New(errpkg.CodeInternal, "internal error", err)
-	}
-	return likedByMe, nil
-}
-
 func (s *MeService) ListMyRatings(ctx context.Context, userID int64, limit int, cursorText string) (*medto.MyRatingListData, error) {
 	if userID <= 0 {
 		return nil, errpkg.New(errpkg.CodeUnauthorized, "unauthorized", nil)
@@ -188,13 +170,18 @@ func (s *MeService) ListMyRatings(ctx context.Context, userID int64, limit int, 
 	}
 
 	out := make([]medto.MyRatingItem, 0, len(ratings))
+	stallIDs := make([]int64, 0, len(ratings))
 	for _, rating := range ratings {
-		stallItem, err := s.stalls.GetStallByID(ctx, rating.StallID)
-		if err != nil {
-			if errors.Is(err, stallrepo.ErrNotFound) {
-				continue
-			}
-			return nil, errpkg.New(errpkg.CodeInternal, "internal error", err)
+		stallIDs = append(stallIDs, rating.StallID)
+	}
+	stallsByID, stallErr := s.stalls.GetStallsByIDs(ctx, stallIDs)
+	if stallErr != nil {
+		return nil, errpkg.New(errpkg.CodeInternal, "internal error", stallErr)
+	}
+	for _, rating := range ratings {
+		stallItem, exists := stallsByID[rating.StallID]
+		if !exists {
+			continue
 		}
 		out = append(out, medto.MyRatingItem{
 			StallID:   rating.StallID,

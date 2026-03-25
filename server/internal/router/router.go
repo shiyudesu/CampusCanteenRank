@@ -17,19 +17,13 @@ import (
 	rankingservice "CampusCanteenRank/server/internal/service/ranking"
 	stallservice "CampusCanteenRank/server/internal/service/stall"
 	"context"
-	"github.com/gin-gonic/gin"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 func NewEngine(secret string) *gin.Engine {
-	return NewEngineWithAllRepositories(
-		secret,
-		authrepo.NewMemoryUserRepository(),
-		authrepo.NewMemoryRefreshTokenRepository(),
-		stallrepo.NewMemoryStallRepository(),
-		commentrepo.NewMemoryCommentRepository(),
-		rankingrepo.NewMemoryRankingRepository(),
-	)
+	panic("NewEngine removed: use NewEngineWithAllRepositories with explicit repositories")
 }
 
 func NewEngineWithRepositories(
@@ -37,14 +31,7 @@ func NewEngineWithRepositories(
 	userRepo authrepo.UserRepository,
 	refreshRepo authrepo.RefreshTokenRepository,
 ) *gin.Engine {
-	return NewEngineWithAllRepositories(
-		secret,
-		userRepo,
-		refreshRepo,
-		stallrepo.NewMemoryStallRepository(),
-		commentrepo.NewMemoryCommentRepository(),
-		rankingrepo.NewMemoryRankingRepository(),
-	)
+	panic("NewEngineWithRepositories removed: use NewEngineWithAllRepositories with explicit repositories")
 }
 
 func NewEngineWithAllRepositories(
@@ -61,20 +48,8 @@ func NewEngineWithAllRepositories(
 	r.Use(middleware.RequestLogger())
 	r.Use(middleware.Recover())
 
-	if userRepo == nil {
-		userRepo = authrepo.NewMemoryUserRepository()
-	}
-	if refreshRepo == nil {
-		refreshRepo = authrepo.NewMemoryRefreshTokenRepository()
-	}
-	if stallRepository == nil {
-		stallRepository = stallrepo.NewMemoryStallRepository()
-	}
-	if commentRepository == nil {
-		commentRepository = commentrepo.NewMemoryCommentRepository()
-	}
-	if rankingRepository == nil {
-		rankingRepository = rankingrepo.NewMemoryRankingRepository()
+	if userRepo == nil || refreshRepo == nil || stallRepository == nil || commentRepository == nil || rankingRepository == nil {
+		panic("all repositories must be explicitly provided")
 	}
 
 	var rankingInvalidator interface {
