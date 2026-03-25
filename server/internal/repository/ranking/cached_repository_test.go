@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -12,13 +13,23 @@ import (
 type fakeRankingStore struct {
 	data map[string]string
 	err  error
+
 	sets int
 	gets int
-	dels int
+	incs int
+
+	setNXResult bool
+	setNXErr    error
+	lockValues  map[string]string
+
+	afterGet func(store *fakeRankingStore, key string)
 }
 
 func (s *fakeRankingStore) Get(_ context.Context, key string) (string, error) {
 	s.gets++
+	if s.afterGet != nil {
+		s.afterGet(s, key)
+	}
 	if s.err != nil {
 		return "", s.err
 	}
@@ -38,15 +49,46 @@ func (s *fakeRankingStore) Set(_ context.Context, key string, value string, _ ti
 	return nil
 }
 
-func (s *fakeRankingStore) DeleteByPrefix(_ context.Context, prefix string) error {
-	s.dels++
+func (s *fakeRankingStore) Increment(_ context.Context, key string) (int64, error) {
+	s.incs++
 	if s.data == nil {
+		s.data = map[string]string{}
+	}
+	current := int64(0)
+	if raw, ok := s.data[key]; ok {
+		var parsed int64
+		if _, err := fmt.Sscanf(raw, "%d", &parsed); err == nil {
+			current = parsed
+		}
+	}
+	next := current + 1
+	s.data[key] = fmt.Sprintf("%d", next)
+	return next, nil
+}
+
+func (s *fakeRankingStore) SetNX(_ context.Context, key string, value string, _ time.Duration) (bool, error) {
+	if s.setNXErr != nil {
+		return false, s.setNXErr
+	}
+	if s.lockValues == nil {
+		s.lockValues = map[string]string{}
+	}
+	if s.setNXResult {
+		s.lockValues[key] = value
+		return true, nil
+	}
+	if _, exists := s.lockValues[key]; exists {
+		return false, nil
+	}
+	return false, nil
+}
+
+func (s *fakeRankingStore) ReleaseLock(_ context.Context, key string, expectedValue string) error {
+	if s.lockValues == nil {
 		return nil
 	}
-	for key := range s.data {
-		if len(key) >= len(prefix) && key[:len(prefix)] == prefix {
-			delete(s.data, key)
-		}
+	if value, exists := s.lockValues[key]; exists && value == expectedValue {
+		delete(s.lockValues, key)
 	}
 	return nil
 }
@@ -71,7 +113,7 @@ func TestNewCachedRankingRepositoryFallback(t *testing.T) {
 }
 
 func TestCachedRankingRepositoryCachesResult(t *testing.T) {
-	store := &fakeRankingStore{}
+	store := &fakeRankingStore{setNXResult: true}
 	base := &fakeRankingRepo{items: []model.RankingItem{{StallID: 101, StallName: "A"}}}
 	repo := newCachedRankingRepositoryWithStore(base, store, "ranking:test", time.Minute)
 
@@ -113,10 +155,7 @@ func TestCachedRankingRepositoryCachesResult(t *testing.T) {
 }
 
 func TestCachedRankingRepositoryInvalidatePrefix(t *testing.T) {
-	store := &fakeRankingStore{data: map[string]string{
-		"ranking:test:scope=global": "x",
-		"other:key":                 "y",
-	}}
+	store := &fakeRankingStore{data: map[string]string{"other:key": "y"}, setNXResult: true}
 	base := &fakeRankingRepo{items: []model.RankingItem{{StallID: 101, StallName: "A"}}}
 	repo := newCachedRankingRepositoryWithStore(base, store, "ranking:test", time.Minute)
 
@@ -128,13 +167,56 @@ func TestCachedRankingRepositoryInvalidatePrefix(t *testing.T) {
 	if err := cachedRepo.InvalidateRankingCache(context.Background()); err != nil {
 		t.Fatalf("invalidate ranking cache failed: %v", err)
 	}
-	if store.dels != 1 {
-		t.Fatalf("delete by prefix calls = %d, want 1", store.dels)
+	if store.incs != 1 {
+		t.Fatalf("version increment calls = %d, want 1", store.incs)
 	}
-	if _, exists := store.data["ranking:test:scope=global"]; exists {
-		t.Fatalf("ranking cache key should be deleted")
+	if got := store.data["ranking:test:version"]; got != "1" {
+		t.Fatalf("version value = %s, want 1", got)
 	}
 	if _, exists := store.data["other:key"]; !exists {
-		t.Fatalf("non-matching key should remain")
+		t.Fatalf("unrelated key should remain")
+	}
+}
+
+func TestCachedRankingRepositoryWaitsForLockOwnerPopulate(t *testing.T) {
+	store := &fakeRankingStore{setNXResult: false, data: map[string]string{}}
+	base := &fakeRankingRepo{items: []model.RankingItem{{StallID: 501, StallName: "fallback"}}}
+	repo := newCachedRankingRepositoryWithStore(base, store, "ranking:test", time.Minute)
+
+	cachedRepo, ok := repo.(*cachedRankingRepository)
+	if !ok {
+		t.Fatalf("repo should be *cachedRankingRepository")
+	}
+	cachedRepo.lockRetry = 2
+	cachedRepo.lockWait = 2 * time.Millisecond
+
+	opts := RankingListOptions{Limit: 20, Filter: RankingFilter{Scope: "global", Days: 30, Sort: "score_desc"}}
+	cacheKey := cachedRepo.cacheKey(defaultRankingVersion, opts)
+	misses := 0
+	store.afterGet = func(s *fakeRankingStore, key string) {
+		if key != cacheKey {
+			return
+		}
+		if _, exists := s.data[key]; exists {
+			return
+		}
+		misses++
+		if misses == 2 {
+			s.data[key] = `{"items":[{"stallId":777,"stallName":"from-cache"}],"hasMore":false}`
+		}
+	}
+
+	items, hasMore, err := repo.ListRankings(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("list rankings failed: %v", err)
+	}
+	if hasMore {
+		t.Fatalf("hasMore should be false")
+	}
+	if len(items) != 1 || items[0].StallID != 777 {
+		t.Fatalf("items should come from populated cache, got %+v", items)
+	}
+	if base.calls != 0 {
+		t.Fatalf("base repo should not be called when cache gets populated by lock owner, got %d", base.calls)
 	}
 }

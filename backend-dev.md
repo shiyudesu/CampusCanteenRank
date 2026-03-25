@@ -224,9 +224,10 @@ LIMIT :limit
 
 ## 8.3 缓存策略
 
-- Key：`rank:v1:{scope}:{scopeId}:{days}:{sort}:{cursor}`
-- TTL：300秒
-- 触发失效：评分变更、评论发布（异步批量失效）
+- Key：`rank:v1:data:v{version}:{scope}:{scopeId}:{days}:{sort}:{cursor}`
+- TTL：建议 30~300 秒（当前实现默认 30 秒）
+- 触发失效：评分变更、评论发布、评论点赞/取消点赞后递增 `rank:v1:version`（版本号失效）
+- 防击穿：缓存未命中时使用 Redis 分布式锁（`SET NX EX`）控制单请求回源，其他请求短暂等待后重读缓存
 
 ---
 
