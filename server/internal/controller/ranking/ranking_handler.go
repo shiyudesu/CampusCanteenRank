@@ -1,11 +1,7 @@
 package controller
 
 import (
-	"errors"
-	"net/http"
-	"strconv"
-
-	errpkg "CampusCanteenRank/server/internal/pkg/errors"
+	"CampusCanteenRank/server/internal/controller/shared"
 	"CampusCanteenRank/server/internal/pkg/response"
 	service "CampusCanteenRank/server/internal/service/ranking"
 	"github.com/gin-gonic/gin"
@@ -20,24 +16,24 @@ func NewRankingHandler(service *service.RankingService) *RankingHandler {
 }
 
 func (h *RankingHandler) ListRankings(c *gin.Context) {
-	limit, err := parseInt(c.Query("limit"))
+	limit, err := shared.QueryInt(c.Query("limit"), 0)
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
-	scopeID, err := parseInt64(c.Query("scopeId"))
+	scopeID, err := shared.QueryInt64(c.Query("scopeId"), 0)
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
-	foodTypeID, err := parseInt64(c.Query("foodTypeId"))
+	foodTypeID, err := shared.QueryInt64(c.Query("foodTypeId"), 0)
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
-	days, err := parseInt(c.Query("days"))
+	days, err := shared.QueryInt(c.Query("days"), 0)
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
 
@@ -52,36 +48,8 @@ func (h *RankingHandler) ListRankings(c *gin.Context) {
 		c.Query("cursor"),
 	)
 	if serviceErr != nil {
-		h.writeError(c, serviceErr)
+		shared.WriteError(c, serviceErr)
 		return
 	}
 	response.OK(c, data)
-}
-
-func (h *RankingHandler) writeError(c *gin.Context, err error) {
-	var appErr *errpkg.AppError
-	if errors.As(err, &appErr) {
-		switch appErr.Code {
-		case errpkg.CodeBadRequest:
-			response.Fail(c, http.StatusBadRequest, appErr.Code, appErr.Message)
-		default:
-			response.Fail(c, http.StatusInternalServerError, errpkg.CodeInternal, "internal error")
-		}
-		return
-	}
-	response.Fail(c, http.StatusInternalServerError, errpkg.CodeInternal, "internal error")
-}
-
-func parseInt(raw string) (int, error) {
-	if raw == "" {
-		return 0, nil
-	}
-	return strconv.Atoi(raw)
-}
-
-func parseInt64(raw string) (int64, error) {
-	if raw == "" {
-		return 0, nil
-	}
-	return strconv.ParseInt(raw, 10, 64)
 }

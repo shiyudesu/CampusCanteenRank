@@ -1,12 +1,8 @@
 package controller
 
 import (
-	"errors"
-	"net/http"
-	"strconv"
-
+	"CampusCanteenRank/server/internal/controller/shared"
 	dto "CampusCanteenRank/server/internal/dto/stall"
-	errpkg "CampusCanteenRank/server/internal/pkg/errors"
 	"CampusCanteenRank/server/internal/pkg/response"
 	"CampusCanteenRank/server/internal/service/stall"
 	"github.com/gin-gonic/gin"
@@ -23,124 +19,77 @@ func NewStallHandler(service *service.StallService) *StallHandler {
 func (h *StallHandler) ListCanteens(c *gin.Context) {
 	data, err := h.service.ListCanteens(c.Request.Context())
 	if err != nil {
-		h.writeError(c, err)
+		shared.WriteError(c, err)
 		return
 	}
 	response.OK(c, data)
 }
 
 func (h *StallHandler) ListStalls(c *gin.Context) {
-	limit, err := parseIntQuery(c.Query("limit"), 0)
+	limit, err := shared.QueryInt(c.Query("limit"), 0)
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
-	canteenID, err := parseInt64Query(c.Query("canteenId"), 0)
+	canteenID, err := shared.QueryInt64(c.Query("canteenId"), 0)
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
-	foodTypeID, err := parseInt64Query(c.Query("foodTypeId"), 0)
+	foodTypeID, err := shared.QueryInt64(c.Query("foodTypeId"), 0)
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
 	data, err := h.service.ListStalls(c.Request.Context(), limit, c.Query("cursor"), canteenID, foodTypeID, c.Query("sort"))
 	if err != nil {
-		h.writeError(c, err)
+		shared.WriteError(c, err)
 		return
 	}
 	response.OK(c, data)
 }
 
 func (h *StallHandler) GetStallDetail(c *gin.Context) {
-	stallID, err := strconv.ParseInt(c.Param("stallId"), 10, 64)
+	stallID, err := shared.ParamInt64(c, "stallId")
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
 	var userID *int64
-	if rawUserID, ok := c.Get("userId"); ok {
-		if parsed, ok := rawUserID.(int64); ok {
-			userID = &parsed
-		}
+	if parsed, ok := shared.CurrentUserID(c); ok {
+		userID = &parsed
 	}
 	data, serviceErr := h.service.GetStallDetail(c.Request.Context(), stallID, userID)
 	if serviceErr != nil {
-		h.writeError(c, serviceErr)
+		shared.WriteError(c, serviceErr)
 		return
 	}
 	response.OK(c, data)
 }
 
 func (h *StallHandler) UpsertUserRating(c *gin.Context) {
-	stallID, err := strconv.ParseInt(c.Param("stallId"), 10, 64)
+	stallID, err := shared.ParamInt64(c, "stallId")
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
 
 	var req dto.UpsertRatingRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
 
-	rawUserID, ok := c.Get("userId")
+	userID, ok := shared.CurrentUserID(c)
 	if !ok {
-		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
-		return
-	}
-	userID, ok := rawUserID.(int64)
-	if !ok || userID <= 0 {
-		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
+		shared.FailUnauthorized(c)
 		return
 	}
 
 	data, serviceErr := h.service.UpsertUserRating(c.Request.Context(), userID, stallID, req.Score)
 	if serviceErr != nil {
-		h.writeError(c, serviceErr)
+		shared.WriteError(c, serviceErr)
 		return
 	}
 	response.OK(c, data)
-}
-
-func parseIntQuery(raw string, def int) (int, error) {
-	if raw == "" {
-		return def, nil
-	}
-	parsed, err := strconv.Atoi(raw)
-	if err != nil {
-		return 0, err
-	}
-	return parsed, nil
-}
-
-func parseInt64Query(raw string, def int64) (int64, error) {
-	if raw == "" {
-		return def, nil
-	}
-	parsed, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-	return parsed, nil
-}
-
-func (h *StallHandler) writeError(c *gin.Context, err error) {
-	var appErr *errpkg.AppError
-	if errors.As(err, &appErr) {
-		switch appErr.Code {
-		case errpkg.CodeBadRequest:
-			response.Fail(c, http.StatusBadRequest, appErr.Code, appErr.Message)
-		case errpkg.CodeUnauthorized:
-			response.Fail(c, http.StatusUnauthorized, appErr.Code, appErr.Message)
-		case errpkg.CodeNotFound:
-			response.Fail(c, http.StatusNotFound, appErr.Code, appErr.Message)
-		default:
-			response.Fail(c, http.StatusInternalServerError, errpkg.CodeInternal, "internal error")
-		}
-		return
-	}
-	response.Fail(c, http.StatusInternalServerError, errpkg.CodeInternal, "internal error")
 }

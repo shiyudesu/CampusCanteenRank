@@ -1,12 +1,8 @@
 package controller
 
 import (
-	"errors"
-	"net/http"
-	"strconv"
-
+	"CampusCanteenRank/server/internal/controller/shared"
 	dto "CampusCanteenRank/server/internal/dto/comment"
-	errpkg "CampusCanteenRank/server/internal/pkg/errors"
 	"CampusCanteenRank/server/internal/pkg/response"
 	service "CampusCanteenRank/server/internal/service/comment"
 	"github.com/gin-gonic/gin"
@@ -21,162 +17,119 @@ func NewCommentHandler(service *service.CommentService) *CommentHandler {
 }
 
 func (h *CommentHandler) CreateComment(c *gin.Context) {
-	stallID, err := strconv.ParseInt(c.Param("stallId"), 10, 64)
+	stallID, err := shared.ParamInt64(c, "stallId")
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
-	rawUserID, ok := c.Get("userId")
+	userID, ok := shared.CurrentUserID(c)
 	if !ok {
-		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
-		return
-	}
-	userID, ok := rawUserID.(int64)
-	if !ok || userID <= 0 {
-		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
+		shared.FailUnauthorized(c)
 		return
 	}
 
 	var req dto.CreateCommentRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
 
 	data, serviceErr := h.service.CreateComment(c.Request.Context(), userID, stallID, req)
 	if serviceErr != nil {
-		h.writeError(c, serviceErr)
+		shared.WriteError(c, serviceErr)
 		return
 	}
 	response.OK(c, data)
 }
 
 func (h *CommentHandler) ListTopLevelComments(c *gin.Context) {
-	stallID, err := strconv.ParseInt(c.Param("stallId"), 10, 64)
+	stallID, err := shared.ParamInt64(c, "stallId")
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
 
-	limit := 0
-	if rawLimit := c.Query("limit"); rawLimit != "" {
-		parsed, parseErr := strconv.Atoi(rawLimit)
-		if parseErr != nil {
-			response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
-			return
-		}
-		limit = parsed
+	limit, err := shared.QueryInt(c.Query("limit"), 0)
+	if err != nil {
+		shared.FailInvalidParams(c)
+		return
 	}
 
 	viewerUserID := int64(0)
-	if userID, ok := getUserID(c); ok {
+	if userID, ok := shared.CurrentUserID(c); ok {
 		viewerUserID = userID
 	}
 
 	data, serviceErr := h.service.ListTopLevelComments(c.Request.Context(), viewerUserID, stallID, limit, c.Query("cursor"), c.Query("sort"))
 	if serviceErr != nil {
-		h.writeError(c, serviceErr)
+		shared.WriteError(c, serviceErr)
 		return
 	}
 	response.OK(c, data)
 }
 
 func (h *CommentHandler) ListReplies(c *gin.Context) {
-	rootCommentID, err := strconv.ParseInt(c.Param("rootCommentId"), 10, 64)
+	rootCommentID, err := shared.ParamInt64(c, "rootCommentId")
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
 
-	limit := 0
-	if rawLimit := c.Query("limit"); rawLimit != "" {
-		parsed, parseErr := strconv.Atoi(rawLimit)
-		if parseErr != nil {
-			response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
-			return
-		}
-		limit = parsed
+	limit, err := shared.QueryInt(c.Query("limit"), 0)
+	if err != nil {
+		shared.FailInvalidParams(c)
+		return
 	}
 
 	viewerUserID := int64(0)
-	if userID, ok := getUserID(c); ok {
+	if userID, ok := shared.CurrentUserID(c); ok {
 		viewerUserID = userID
 	}
 
 	data, serviceErr := h.service.ListReplies(c.Request.Context(), viewerUserID, rootCommentID, limit, c.Query("cursor"))
 	if serviceErr != nil {
-		h.writeError(c, serviceErr)
+		shared.WriteError(c, serviceErr)
 		return
 	}
 	response.OK(c, data)
 }
 
 func (h *CommentHandler) LikeComment(c *gin.Context) {
-	commentID, err := strconv.ParseInt(c.Param("commentId"), 10, 64)
+	commentID, err := shared.ParamInt64(c, "commentId")
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
-	userID, ok := getUserID(c)
+	userID, ok := shared.CurrentUserID(c)
 	if !ok {
-		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
+		shared.FailUnauthorized(c)
 		return
 	}
 
 	data, serviceErr := h.service.LikeComment(c.Request.Context(), userID, commentID)
 	if serviceErr != nil {
-		h.writeError(c, serviceErr)
+		shared.WriteError(c, serviceErr)
 		return
 	}
 	response.OK(c, data)
 }
 
 func (h *CommentHandler) UnlikeComment(c *gin.Context) {
-	commentID, err := strconv.ParseInt(c.Param("commentId"), 10, 64)
+	commentID, err := shared.ParamInt64(c, "commentId")
 	if err != nil {
-		response.Fail(c, http.StatusBadRequest, errpkg.CodeBadRequest, "invalid params")
+		shared.FailInvalidParams(c)
 		return
 	}
-	userID, ok := getUserID(c)
+	userID, ok := shared.CurrentUserID(c)
 	if !ok {
-		response.Fail(c, http.StatusUnauthorized, errpkg.CodeUnauthorized, "unauthorized")
+		shared.FailUnauthorized(c)
 		return
 	}
 
 	data, serviceErr := h.service.UnlikeComment(c.Request.Context(), userID, commentID)
 	if serviceErr != nil {
-		h.writeError(c, serviceErr)
+		shared.WriteError(c, serviceErr)
 		return
 	}
 	response.OK(c, data)
-}
-
-func getUserID(c *gin.Context) (int64, bool) {
-	rawUserID, ok := c.Get("userId")
-	if !ok {
-		return 0, false
-	}
-	userID, ok := rawUserID.(int64)
-	if !ok || userID <= 0 {
-		return 0, false
-	}
-	return userID, true
-}
-
-func (h *CommentHandler) writeError(c *gin.Context, err error) {
-	var appErr *errpkg.AppError
-	if errors.As(err, &appErr) {
-		switch appErr.Code {
-		case errpkg.CodeBadRequest:
-			response.Fail(c, http.StatusBadRequest, appErr.Code, appErr.Message)
-		case errpkg.CodeUnauthorized:
-			response.Fail(c, http.StatusUnauthorized, appErr.Code, appErr.Message)
-		case errpkg.CodeNotFound:
-			response.Fail(c, http.StatusNotFound, appErr.Code, appErr.Message)
-		default:
-			response.Fail(c, http.StatusInternalServerError, errpkg.CodeInternal, "internal error")
-		}
-		return
-	}
-	response.Fail(c, http.StatusInternalServerError, errpkg.CodeInternal, "internal error")
 }
